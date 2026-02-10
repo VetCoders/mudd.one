@@ -1,0 +1,17 @@
+[package]
+name = "mudd-ffi"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "UniFFI bridge for mudd.one"
+
+[lib]
+crate-type = ["staticlib", "cdylib"]
+path = "src/lib.rs"
+
+[dependencies]
+mudd-core = { path = "../core" }
+uniffi = "0.30"
+
+[build-dependencies]
