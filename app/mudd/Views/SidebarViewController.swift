@@ -30,6 +30,10 @@ class SidebarViewController: NSViewController {
     private var currentFrames: [FfiFrame] = []
     private var currentIndex: Int = 0
     private var currentRoi: FfiRoi?
+    // Per-frame masks from segmentation (keyed by frame index)
+    private var frameMasks: [Int: [FfiMask]] = [:]
+    // Session counter — prevents stale async callbacks after file reload
+    private var sessionId: UInt64 = 0
 
     override func loadView() {
         let container = NSView()
@@ -90,7 +94,7 @@ class SidebarViewController: NSViewController {
 
         exportButton.bezelStyle = .rounded
         exportButton.target = self
-        exportButton.action = #selector(exportDataset)
+        exportButton.action = #selector(openExportPanel)
         exportButton.isEnabled = false
 
         // Layout
@@ -157,19 +161,45 @@ class SidebarViewController: NSViewController {
             self, selector: #selector(handleIndexChanged),
             name: .muddCurrentIndexChanged, object: nil
         )
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleMasksUpdated),
+            name: .muddMasksUpdated, object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleFrameUpdated),
+            name: .muddFrameUpdated, object: nil
+        )
     }
 
     // MARK: - Notifications
 
     @objc private func handleFramesLoaded(_ notification: Notification) {
         guard let frames = notification.userInfo?["frames"] as? [FfiFrame] else { return }
+        sessionId += 1
         currentFrames = frames
         currentIndex = 0
         currentRoi = nil
+        frameMasks = [:]
         autoRoiButton.isEnabled = !frames.isEmpty
         cropButton.isEnabled = false
         clearRoiButton.isEnabled = false
         exportButton.isEnabled = !frames.isEmpty
+    }
+
+    @objc private func handleMasksUpdated(_ notification: Notification) {
+        guard let masks = notification.userInfo?["masks"] as? [FfiMask],
+              let index = notification.userInfo?["index"] as? Int else { return }
+        frameMasks[index] = masks
+    }
+
+    @objc private func handleFrameUpdated(_ notification: Notification) {
+        guard let frame = notification.userInfo?["frame"] as? FfiFrame,
+              let index = notification.userInfo?["index"] as? Int else { return }
+        if index < currentFrames.count {
+            currentFrames[index] = frame
+        }
+        // Invalidate masks for this frame — image changed, old masks are stale
+        frameMasks.removeValue(forKey: index)
     }
 
     @objc private func handleRoiDetected(_ notification: Notification) {
@@ -228,6 +258,7 @@ class SidebarViewController: NSViewController {
     @objc private func detectAutoRoi() {
         guard !currentFrames.isEmpty else { return }
         let frame = currentFrames[currentIndex]
+        let session = sessionId
         autoRoiButton.isEnabled = false
         autoRoiButton.title = "Detecting..."
 
@@ -235,6 +266,7 @@ class SidebarViewController: NSViewController {
             do {
                 let roi = try detectRoi(frame: frame)
                 DispatchQueue.main.async {
+                    guard self?.sessionId == session else { return }
                     self?.autoRoiButton.title = "Auto ROI"
                     self?.autoRoiButton.isEnabled = true
                     self?.currentRoi = roi
@@ -247,6 +279,7 @@ class SidebarViewController: NSViewController {
                 }
             } catch {
                 DispatchQueue.main.async {
+                    guard self?.sessionId == session else { return }
                     self?.autoRoiButton.title = "Auto ROI"
                     self?.autoRoiButton.isEnabled = true
                     let alert = NSAlert()
@@ -261,6 +294,7 @@ class SidebarViewController: NSViewController {
     @objc private func applyCrop() {
         guard !currentFrames.isEmpty, let roi = currentRoi else { return }
         let idx = currentIndex
+        let session = sessionId
         let frame = currentFrames[idx]
         cropButton.isEnabled = false
 
@@ -268,6 +302,7 @@ class SidebarViewController: NSViewController {
             do {
                 let cropped = try cropFrame(frame: frame, roi: roi)
                 DispatchQueue.main.async {
+                    guard self?.sessionId == session else { return }
                     if idx < (self?.currentFrames.count ?? 0) {
                         self?.currentFrames[idx] = cropped
                     }
@@ -281,6 +316,7 @@ class SidebarViewController: NSViewController {
                 }
             } catch {
                 DispatchQueue.main.async {
+                    guard self?.sessionId == session else { return }
                     self?.cropButton.isEnabled = true
                     let alert = NSAlert()
                     alert.messageText = "Crop Failed"
@@ -350,15 +386,9 @@ class SidebarViewController: NSViewController {
 
     // MARK: - Export
 
-    @objc private func exportDataset() {
+    @objc private func openExportPanel() {
         guard !currentFrames.isEmpty else { return }
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.folder]
-        panel.nameFieldStringValue = "mudd_export"
-        panel.message = "Select export directory"
-        panel.canCreateDirectories = true
 
-        // Use open panel for directory selection
         let openPanel = NSOpenPanel()
         openPanel.canChooseDirectories = true
         openPanel.canChooseFiles = false
@@ -382,24 +412,46 @@ class SidebarViewController: NSViewController {
         let response = alert.runModal()
         guard response != .alertThirdButtonReturn else { return }
 
-        let format = response == .alertFirstButtonReturn ? "yolo" : "coco"
+        let ffiFormat: FfiExportFormat = response == .alertFirstButtonReturn ? .yolo : .coco
+        let formatName = response == .alertFirstButtonReturn ? "YOLO" : "COCO"
+
+        // Build export items from current frames + masks
+        var items: [FfiExportItem] = []
+        for (i, frame) in currentFrames.enumerated() {
+            let masks = frameMasks[i] ?? []
+            items.append(FfiExportItem(frame: frame, masks: masks, frameIndex: UInt32(i)))
+        }
+
         exportButton.isEnabled = false
         exportButton.title = "Exporting..."
 
-        // Export runs on background, posts results
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            // TODO: Wire to Rust export functions when ready
-            // For now just create the directory structure
-            let formatDir = directory.appendingPathComponent(format)
-            try? FileManager.default.createDirectory(at: formatDir, withIntermediateDirectories: true)
+        let outputDir = directory.path
 
-            DispatchQueue.main.async {
-                self?.exportButton.title = "Export Dataset..."
-                self?.exportButton.isEnabled = true
-                let done = NSAlert()
-                done.messageText = "Export"
-                done.informativeText = "Export directory created: \(formatDir.path)"
-                done.runModal()
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            do {
+                let count = try exportDataset(
+                    outputDir: outputDir,
+                    format: ffiFormat,
+                    imageFormat: .png,
+                    items: items
+                )
+                DispatchQueue.main.async {
+                    self?.exportButton.title = "Export Dataset..."
+                    self?.exportButton.isEnabled = true
+                    let done = NSAlert()
+                    done.messageText = "Export Complete"
+                    done.informativeText = "\(formatName): \(count) frame(s) exported to \(outputDir)"
+                    done.runModal()
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self?.exportButton.title = "Export Dataset..."
+                    self?.exportButton.isEnabled = true
+                    let alert = NSAlert()
+                    alert.messageText = "Export Failed"
+                    alert.informativeText = error.localizedDescription
+                    alert.runModal()
+                }
             }
         }
     }
@@ -412,4 +464,5 @@ extension Notification.Name {
     static let muddRoiManual = Notification.Name("muddRoiManual")
     static let muddFrameUpdated = Notification.Name("muddFrameUpdated")
     static let muddCurrentIndexChanged = Notification.Name("muddCurrentIndexChanged")
+    static let muddMasksUpdated = Notification.Name("muddMasksUpdated")
 }

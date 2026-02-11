@@ -42,12 +42,13 @@ pub fn export_yolo(config: &ExportConfig, items: &[ExportItem]) -> Result<()> {
 
         if let Some(annotated) = &item.annotation {
             for mask in &annotated.masks {
-                let bbox = mask_to_normalized_bbox(mask, frame.width, frame.height);
-                // class_id x_center y_center width height
-                label_content.push_str(&format!(
-                    "0 {:.6} {:.6} {:.6} {:.6}\n",
-                    bbox.0, bbox.1, bbox.2, bbox.3
-                ));
+                if let Some(bbox) = mask_to_normalized_bbox(mask, frame.width, frame.height) {
+                    // class_id x_center y_center width height
+                    label_content.push_str(&format!(
+                        "0 {:.6} {:.6} {:.6} {:.6}\n",
+                        bbox.0, bbox.1, bbox.2, bbox.3
+                    ));
+                }
             }
         }
 
@@ -68,14 +69,16 @@ pub fn export_yolo(config: &ExportConfig, items: &[ExportItem]) -> Result<()> {
     Ok(())
 }
 
-/// Convert binary mask to normalized YOLO bbox (x_center, y_center, width, height)
+/// Convert binary mask to normalized YOLO bbox (x_center, y_center, width, height).
+/// Returns None for empty masks (no active pixels).
 fn mask_to_normalized_bbox(
     mask: &crate::imaging::types::Mask,
     frame_w: u32,
     frame_h: u32,
-) -> (f64, f64, f64, f64) {
+) -> Option<(f64, f64, f64, f64)> {
     let (mut min_x, mut min_y) = (mask.width, mask.height);
     let (mut max_x, mut max_y) = (0u32, 0u32);
+    let mut found = false;
 
     for y in 0..mask.height {
         for x in 0..mask.width {
@@ -84,21 +87,31 @@ fn mask_to_normalized_bbox(
                 min_y = min_y.min(y);
                 max_x = max_x.max(x);
                 max_y = max_y.max(y);
+                found = true;
             }
         }
     }
 
+    if !found || frame_w == 0 || frame_h == 0 {
+        return None;
+    }
+
     let w = (max_x - min_x) as f64;
     let h = (max_y - min_y) as f64;
+
+    // Skip degenerate masks (single-pixel or zero-area) — consistent with COCO
+    if w <= 0.0 || h <= 0.0 {
+        return None;
+    }
     let cx = min_x as f64 + w / 2.0;
     let cy = min_y as f64 + h / 2.0;
 
-    (
+    Some((
         cx / frame_w as f64,
         cy / frame_h as f64,
         w / frame_w as f64,
         h / frame_h as f64,
-    )
+    ))
 }
 
 fn save_frame(

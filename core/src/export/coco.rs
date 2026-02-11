@@ -43,10 +43,14 @@ pub fn export_coco(config: &ExportConfig, items: &[ExportItem]) -> Result<()> {
             height: frame.height,
         });
 
-        // Convert masks to annotations
+        // Convert masks to annotations (skip empty masks)
         if let Some(annotated) = &item.annotation {
             for mask in &annotated.masks {
                 let bbox = mask_to_bbox(mask);
+                // Skip degenerate annotations (empty mask → zero-area bbox)
+                if bbox[2] <= 0.0 || bbox[3] <= 0.0 {
+                    continue;
+                }
                 let segmentation = mask_to_rle(mask);
 
                 coco.annotations.push(CocoAnnotation {
@@ -123,10 +127,12 @@ fn save_frame_to_file(
     Ok(())
 }
 
-/// Extract bounding box [x, y, width, height] from a binary mask
+/// Extract bounding box [x, y, width, height] from a binary mask.
+/// Returns [0,0,0,0] for empty masks (no active pixels).
 fn mask_to_bbox(mask: &crate::imaging::types::Mask) -> [f64; 4] {
     let (mut min_x, mut min_y) = (mask.width as f64, mask.height as f64);
     let (mut max_x, mut max_y) = (0.0f64, 0.0f64);
+    let mut found = false;
 
     for y in 0..mask.height {
         for x in 0..mask.width {
@@ -135,8 +141,13 @@ fn mask_to_bbox(mask: &crate::imaging::types::Mask) -> [f64; 4] {
                 min_y = min_y.min(y as f64);
                 max_x = max_x.max(x as f64);
                 max_y = max_y.max(y as f64);
+                found = true;
             }
         }
+    }
+
+    if !found {
+        return [0.0, 0.0, 0.0, 0.0];
     }
 
     [min_x, min_y, max_x - min_x, max_y - min_y]

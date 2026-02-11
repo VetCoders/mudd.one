@@ -3,7 +3,7 @@
 
 uniffi::setup_scaffolding!();
 
-use mudd_core::imaging::types::{ColorSpace, FilterType, Frame, FrameSource, Roi};
+use mudd_core::imaging::types::{ColorSpace, FilterType, Frame, FrameSource, Mask, Roi};
 
 // ═══════════════════════════════════════════════════════════
 // FFI error type (UniFFI requires a proper error enum)
@@ -105,6 +105,15 @@ fn ffi_to_filter(f: &FfiFilterType) -> FilterType {
         FfiFilterType::AdaptiveThreshold => FilterType::AdaptiveThreshold,
         FfiFilterType::Canny => FilterType::Canny,
         FfiFilterType::GaussianBlur => FilterType::GaussianBlur,
+    }
+}
+
+fn ffi_to_mask(m: FfiMask) -> Mask {
+    Mask {
+        data: m.data,
+        width: m.width,
+        height: m.height,
+        label: m.label,
     }
 }
 
@@ -224,4 +233,97 @@ pub fn segment_frame(
             label: m.label,
         })
         .collect())
+}
+
+// ═══════════════════════════════════════════════════════════
+// Export
+// ═══════════════════════════════════════════════════════════
+
+#[derive(uniffi::Enum)]
+pub enum FfiExportFormat {
+    Coco,
+    Yolo,
+}
+
+#[derive(uniffi::Enum)]
+pub enum FfiImageFormat {
+    Png,
+    Jpeg,
+    Tiff,
+}
+
+/// One frame with optional masks, ready for export
+#[derive(uniffi::Record)]
+pub struct FfiExportItem {
+    pub frame: FfiFrame,
+    pub masks: Vec<FfiMask>,
+    pub frame_index: u32,
+}
+
+#[uniffi::export]
+pub fn export_dataset(
+    output_dir: String,
+    format: FfiExportFormat,
+    image_format: FfiImageFormat,
+    items: Vec<FfiExportItem>,
+) -> Result<u32, MuddError> {
+    use mudd_core::imaging::types::FrameMetadata;
+    use mudd_core::pipeline::contracts::{
+        AnnotatedFrame, ExportConfig, ExportFormat, ExportItem, ImageExportFormat, ProcessedFrame,
+    };
+
+    let total = items.len() as u32;
+
+    let core_config = ExportConfig {
+        format: match format {
+            FfiExportFormat::Coco => ExportFormat::Coco,
+            FfiExportFormat::Yolo => ExportFormat::Yolo,
+        },
+        output_dir: output_dir.clone(),
+        image_format: match image_format {
+            FfiImageFormat::Png => ImageExportFormat::Png,
+            FfiImageFormat::Jpeg => ImageExportFormat::Jpeg,
+            FfiImageFormat::Tiff => ImageExportFormat::Tiff,
+        },
+        include_metadata: false,
+    };
+
+    let core_items: Vec<ExportItem> = items
+        .into_iter()
+        .map(|item| {
+            let frame = ffi_to_frame(item.frame);
+            let annotation = if item.masks.is_empty() {
+                None
+            } else {
+                Some(AnnotatedFrame {
+                    frame: frame.clone(),
+                    masks: item.masks.into_iter().map(ffi_to_mask).collect(),
+                })
+            };
+            ExportItem {
+                processed: ProcessedFrame {
+                    frame,
+                    filters_applied: Vec::new(),
+                },
+                annotation,
+                metadata: FrameMetadata {
+                    frame_index: item.frame_index as usize,
+                    total_frames: total as usize,
+                    ..Default::default()
+                },
+            }
+        })
+        .collect();
+
+    match core_config.format {
+        ExportFormat::Coco => mudd_core::export::coco::export_coco(&core_config, &core_items)?,
+        ExportFormat::Yolo => mudd_core::export::yolo::export_yolo(&core_config, &core_items)?,
+        ExportFormat::Custom => {
+            return Err(MuddError::Core {
+                msg: "custom export format not implemented".to_string(),
+            });
+        }
+    }
+
+    Ok(total)
 }

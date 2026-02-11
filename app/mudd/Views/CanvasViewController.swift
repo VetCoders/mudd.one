@@ -21,6 +21,7 @@ class CanvasViewController: NSViewController {
 
     private var frames: [FfiFrame] = []
     private var currentIndex: Int = 0
+    private var sessionId: UInt64 = 0
 
     override func loadView() {
         let container = NSView()
@@ -128,6 +129,8 @@ class CanvasViewController: NSViewController {
     @objc private func handleFileSelected(_ notification: Notification) {
         guard let url = notification.userInfo?["url"] as? URL else { return }
 
+        sessionId += 1
+        let session = sessionId
         statusLabel.stringValue = "Loading \(url.lastPathComponent)..."
         clearOverlays()
 
@@ -135,10 +138,12 @@ class CanvasViewController: NSViewController {
             do {
                 let loadedFrames = try loadFile(path: url.path)
                 DispatchQueue.main.async {
+                    guard self?.sessionId == session else { return }
                     self?.displayFrames(loadedFrames, filename: url.lastPathComponent)
                 }
             } catch {
                 DispatchQueue.main.async {
+                    guard self?.sessionId == session else { return }
                     self?.statusLabel.stringValue = "Error: \(error.localizedDescription)"
                 }
             }
@@ -369,7 +374,8 @@ class CanvasViewController: NSViewController {
 
     private func handleSegClick(at viewPoint: NSPoint) {
         guard !frames.isEmpty, isEngineReady() else { return }
-        let frame = frames[currentIndex]
+        let idx = currentIndex
+        let frame = frames[idx]
         let imageRect = imageRectInView()
         guard imageRect.width > 0, imageRect.height > 0 else { return }
 
@@ -380,17 +386,24 @@ class CanvasViewController: NSViewController {
         let imgY = Float((viewPoint.y - imageRect.origin.y) * scaleY)
 
         let prompt = FfiPromptPoint(x: imgX, y: imgY, label: 1)
+        let session = sessionId
         statusLabel.stringValue = "Segmenting..."
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             do {
                 let masks = try segmentFrame(frame: frame, prompts: [prompt])
                 DispatchQueue.main.async {
+                    guard self?.sessionId == session else { return }
                     self?.displayMasks(masks)
                     self?.statusLabel.stringValue = "Segmentation: \(masks.count) mask(s)"
+                    NotificationCenter.default.post(
+                        name: .muddMasksUpdated, object: nil,
+                        userInfo: ["masks": masks, "index": idx]
+                    )
                 }
             } catch {
                 DispatchQueue.main.async {
+                    guard self?.sessionId == session else { return }
                     self?.statusLabel.stringValue = "Segmentation failed: \(error.localizedDescription)"
                 }
             }
