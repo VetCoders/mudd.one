@@ -260,20 +260,23 @@ class SidebarViewController: NSViewController {
 
     @objc private func applyCrop() {
         guard !currentFrames.isEmpty, let roi = currentRoi else { return }
-        let frame = currentFrames[currentIndex]
+        let idx = currentIndex
+        let frame = currentFrames[idx]
         cropButton.isEnabled = false
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             do {
                 let cropped = try cropFrame(frame: frame, roi: roi)
                 DispatchQueue.main.async {
-                    self?.currentFrames[self?.currentIndex ?? 0] = cropped
+                    if idx < (self?.currentFrames.count ?? 0) {
+                        self?.currentFrames[idx] = cropped
+                    }
                     self?.currentRoi = nil
                     self?.cropButton.isEnabled = false
                     self?.clearRoiButton.isEnabled = false
                     NotificationCenter.default.post(
                         name: .muddFrameUpdated, object: nil,
-                        userInfo: ["frame": cropped, "index": self?.currentIndex ?? 0, "source": "crop"]
+                        userInfo: ["frame": cropped, "index": idx, "source": "crop"]
                     )
                 }
             } catch {

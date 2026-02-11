@@ -192,7 +192,8 @@ class InspectorViewController: NSViewController {
         let selected = filterButtons.compactMap { $0.button.state == .on ? $0.filter : nil }
         guard !selected.isEmpty, !originalFrames.isEmpty else { return }
 
-        let frame = originalFrames[currentIndex]
+        let idx = currentIndex
+        let frame = originalFrames[idx]
         applyFiltersButton.isEnabled = false
         applyFiltersButton.title = "Applying..."
 
@@ -202,10 +203,12 @@ class InspectorViewController: NSViewController {
                 DispatchQueue.main.async {
                     self?.applyFiltersButton.title = "Apply Filters"
                     self?.applyFiltersButton.isEnabled = true
-                    self?.currentFrames[self?.currentIndex ?? 0] = result
+                    if idx < (self?.currentFrames.count ?? 0) {
+                        self?.currentFrames[idx] = result
+                    }
                     NotificationCenter.default.post(
                         name: .muddFrameUpdated, object: self,
-                        userInfo: ["frame": result, "index": self?.currentIndex ?? 0, "source": "filter"]
+                        userInfo: ["frame": result, "index": idx, "source": "filter"]
                     )
                 }
             } catch {

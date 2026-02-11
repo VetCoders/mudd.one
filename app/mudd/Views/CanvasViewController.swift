@@ -113,6 +113,10 @@ class CanvasViewController: NSViewController {
         }
         // ROI layer covers full imageView (path coords are absolute within it)
         roiLayer.frame = imageView.bounds
+        // Redraw ROI path for new bounds
+        if let roi = currentRoi {
+            drawRoiOverlay(roi)
+        }
         // Mask layer must track letterbox rect
         if maskLayer.contents != nil {
             maskLayer.frame = imageRectInView()
@@ -215,10 +219,12 @@ class CanvasViewController: NSViewController {
 
     @objc private func handleRoiDetected(_ notification: Notification) {
         if notification.userInfo?["roi"] is NSNull {
+            currentRoi = nil
             clearOverlays()
             return
         }
         guard let roi = notification.userInfo?["roi"] as? FfiRoi else { return }
+        currentRoi = roi
         drawRoiOverlay(roi)
     }
 
@@ -262,6 +268,7 @@ class CanvasViewController: NSViewController {
     }
 
     private func clearOverlays() {
+        currentRoi = nil
         roiLayer.path = nil
         maskLayer.contents = nil
     }
