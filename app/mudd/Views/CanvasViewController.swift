@@ -1,4 +1,4 @@
-// mudd.one — Canvas (image display + sequence navigator)
+// mudd.one — Canvas (image display + ROI overlay + sequence navigator)
 // Created by M&K (c)2026 VetCoders
 
 import AppKit
@@ -9,6 +9,15 @@ class CanvasViewController: NSViewController {
     private let sequenceSlider = NSSlider(value: 0, minValue: 0, maxValue: 0, target: nil, action: nil)
     private let frameLabel = NSTextField(labelWithString: "")
 
+    // ROI overlay
+    private let roiLayer = CAShapeLayer()
+    private var dragStart: NSPoint?
+    private var isDragging = false
+
+    // Segmentation overlay
+    private let maskLayer = CALayer()
+    private var segModeActive = false
+
     private var frames: [FfiFrame] = []
     private var currentIndex: Int = 0
 
@@ -17,19 +26,28 @@ class CanvasViewController: NSViewController {
         container.wantsLayer = true
         view = container
 
-        // Image view — fills center
+        // Image view
         imageView.imageScaling = .scaleProportionallyUpOrDown
         imageView.imageAlignment = .alignCenter
         imageView.wantsLayer = true
         imageView.layer?.backgroundColor = NSColor.black.cgColor
         imageView.translatesAutoresizingMaskIntoConstraints = false
 
-        // Status bar at top
+        // ROI overlay layer
+        roiLayer.fillColor = NSColor.systemYellow.withAlphaComponent(0.15).cgColor
+        roiLayer.strokeColor = NSColor.systemYellow.cgColor
+        roiLayer.lineWidth = 2.0
+        roiLayer.lineDashPattern = [6, 3]
+
+        // Mask overlay layer
+        maskLayer.opacity = 0.4
+
+        // Status bar
         statusLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
         statusLabel.textColor = .secondaryLabelColor
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        // Sequence navigator at bottom
+        // Sequence navigator
         sequenceSlider.target = self
         sequenceSlider.action = #selector(sliderChanged)
         sequenceSlider.isHidden = true
@@ -67,17 +85,43 @@ class CanvasViewController: NSViewController {
         ])
 
         NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleFileSelected),
-            name: .muddFileSelected,
-            object: nil
+            self, selector: #selector(handleFileSelected),
+            name: .muddFileSelected, object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleRoiDetected),
+            name: .muddRoiDetected, object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleFrameUpdated),
+            name: .muddFrameUpdated, object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleSegModeChanged),
+            name: Notification.Name("muddSegModeChanged"), object: nil
         )
     }
+
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        // Re-add overlay layers after layout
+        if roiLayer.superlayer == nil {
+            imageView.layer?.addSublayer(roiLayer)
+        }
+        if maskLayer.superlayer == nil {
+            imageView.layer?.addSublayer(maskLayer)
+        }
+        roiLayer.frame = imageView.bounds
+        maskLayer.frame = imageView.bounds
+    }
+
+    // MARK: - File loading
 
     @objc private func handleFileSelected(_ notification: Notification) {
         guard let url = notification.userInfo?["url"] as? URL else { return }
 
         statusLabel.stringValue = "Loading \(url.lastPathComponent)..."
+        clearOverlays()
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             do {
@@ -112,7 +156,6 @@ class CanvasViewController: NSViewController {
 
         statusLabel.stringValue = "\(filename) | \(first.width)x\(first.height) | \(colorspace) | \(frames.count) frame(s)"
 
-        // Sequence navigator
         if frames.count > 1 {
             sequenceSlider.isHidden = false
             frameLabel.isHidden = false
@@ -128,11 +171,12 @@ class CanvasViewController: NSViewController {
         showFrame(at: 0)
 
         NotificationCenter.default.post(
-            name: .muddFramesLoaded,
-            object: nil,
+            name: .muddFramesLoaded, object: nil,
             userInfo: ["frames": frames]
         )
     }
+
+    // MARK: - Frame display
 
     @objc private func sliderChanged() {
         let idx = sequenceSlider.integerValue
@@ -140,6 +184,7 @@ class CanvasViewController: NSViewController {
         currentIndex = idx
         showFrame(at: idx)
         updateFrameLabel()
+        clearOverlays()
     }
 
     private func updateFrameLabel() {
@@ -156,6 +201,245 @@ class CanvasViewController: NSViewController {
             return
         }
         imageView.image = nsImage
+    }
+
+    // MARK: - ROI overlay
+
+    @objc private func handleRoiDetected(_ notification: Notification) {
+        if notification.userInfo?["roi"] is NSNull {
+            clearOverlays()
+            return
+        }
+        guard let roi = notification.userInfo?["roi"] as? FfiRoi else { return }
+        drawRoiOverlay(roi)
+    }
+
+    private func drawRoiOverlay(_ roi: FfiRoi) {
+        guard !frames.isEmpty else { return }
+        let frame = frames[currentIndex]
+
+        let imageRect = imageRectInView()
+        let scaleX = imageRect.width / CGFloat(frame.width)
+        let scaleY = imageRect.height / CGFloat(frame.height)
+
+        let roiRect = CGRect(
+            x: imageRect.origin.x + CGFloat(roi.x) * scaleX,
+            y: imageRect.origin.y + CGFloat(roi.y) * scaleY,
+            width: CGFloat(roi.width) * scaleX,
+            height: CGFloat(roi.height) * scaleY
+        )
+
+        roiLayer.path = CGPath(rect: roiRect, transform: nil)
+    }
+
+    @objc private func handleFrameUpdated(_ notification: Notification) {
+        guard let frame = notification.userInfo?["frame"] as? FfiFrame,
+              let index = notification.userInfo?["index"] as? Int else { return }
+
+        if index < frames.count {
+            frames[index] = frame
+        }
+        clearOverlays()
+        showFrame(at: index)
+
+        // Update status
+        let colorspace: String
+        switch frame.channels {
+        case 1: colorspace = "Grayscale"
+        case 3: colorspace = "RGB"
+        case 4: colorspace = "RGBA"
+        default: colorspace = "?\(frame.channels)ch"
+        }
+        statusLabel.stringValue = "Cropped | \(frame.width)x\(frame.height) | \(colorspace)"
+    }
+
+    private func clearOverlays() {
+        roiLayer.path = nil
+        maskLayer.contents = nil
+    }
+
+    // MARK: - Drag-to-select ROI
+
+    override func mouseDown(with event: NSEvent) {
+        let point = imageView.convert(event.locationInWindow, from: nil)
+        guard imageView.bounds.contains(point) else {
+            super.mouseDown(with: event)
+            return
+        }
+
+        if segModeActive {
+            handleSegClick(at: point)
+            return
+        }
+
+        dragStart = point
+        isDragging = true
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard isDragging, let start = dragStart else { return }
+        let current = imageView.convert(event.locationInWindow, from: nil)
+
+        let rect = CGRect(
+            x: min(start.x, current.x),
+            y: min(start.y, current.y),
+            width: abs(current.x - start.x),
+            height: abs(current.y - start.y)
+        )
+
+        roiLayer.path = CGPath(rect: rect, transform: nil)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard isDragging, let start = dragStart else { return }
+        isDragging = false
+        let end = imageView.convert(event.locationInWindow, from: nil)
+
+        let viewRect = CGRect(
+            x: min(start.x, end.x),
+            y: min(start.y, end.y),
+            width: abs(end.x - start.x),
+            height: abs(end.y - start.y)
+        )
+
+        // Ignore tiny drags (accidental clicks)
+        guard viewRect.width > 5, viewRect.height > 5 else {
+            dragStart = nil
+            return
+        }
+
+        // Convert view coordinates to image pixel coordinates
+        guard let roi = viewRectToRoi(viewRect) else {
+            dragStart = nil
+            return
+        }
+
+        NotificationCenter.default.post(
+            name: .muddRoiManual, object: nil,
+            userInfo: ["roi": roi]
+        )
+        dragStart = nil
+    }
+
+    private func viewRectToRoi(_ viewRect: CGRect) -> FfiRoi? {
+        guard !frames.isEmpty else { return nil }
+        let frame = frames[currentIndex]
+        let imageRect = imageRectInView()
+        guard imageRect.width > 0, imageRect.height > 0 else { return nil }
+
+        let scaleX = CGFloat(frame.width) / imageRect.width
+        let scaleY = CGFloat(frame.height) / imageRect.height
+
+        let x = max(0, (viewRect.origin.x - imageRect.origin.x) * scaleX)
+        let y = max(0, (viewRect.origin.y - imageRect.origin.y) * scaleY)
+        let w = min(CGFloat(frame.width) - x, viewRect.width * scaleX)
+        let h = min(CGFloat(frame.height) - y, viewRect.height * scaleY)
+
+        guard w > 0, h > 0 else { return nil }
+
+        return FfiRoi(x: UInt32(x), y: UInt32(y), width: UInt32(w), height: UInt32(h))
+    }
+
+    // MARK: - Segmentation
+
+    @objc private func handleSegModeChanged(_ notification: Notification) {
+        guard let active = notification.userInfo?["active"] as? Bool else { return }
+        segModeActive = active
+        if active {
+            NSCursor.crosshair.push()
+        } else {
+            NSCursor.pop()
+        }
+    }
+
+    private func handleSegClick(at viewPoint: NSPoint) {
+        guard !frames.isEmpty, isEngineReady() else { return }
+        let frame = frames[currentIndex]
+        let imageRect = imageRectInView()
+        guard imageRect.width > 0, imageRect.height > 0 else { return }
+
+        let scaleX = CGFloat(frame.width) / imageRect.width
+        let scaleY = CGFloat(frame.height) / imageRect.height
+
+        let imgX = Float((viewPoint.x - imageRect.origin.x) * scaleX)
+        let imgY = Float((viewPoint.y - imageRect.origin.y) * scaleY)
+
+        let prompt = FfiPromptPoint(x: imgX, y: imgY, label: 1)
+        statusLabel.stringValue = "Segmenting..."
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            do {
+                let masks = try segmentFrame(frame: frame, prompts: [prompt])
+                DispatchQueue.main.async {
+                    self?.displayMasks(masks)
+                    self?.statusLabel.stringValue = "Segmentation: \(masks.count) mask(s)"
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self?.statusLabel.stringValue = "Segmentation failed: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    private func displayMasks(_ masks: [FfiMask]) {
+        guard let first = masks.first else { return }
+
+        // Create mask image (green overlay)
+        let w = Int(first.width)
+        let h = Int(first.height)
+        var rgba = Data(count: w * h * 4)
+
+        for i in 0 ..< w * h {
+            let val = first.data[i]
+            if val > 127 {
+                rgba[i * 4] = 0       // R
+                rgba[i * 4 + 1] = 200 // G
+                rgba[i * 4 + 2] = 0   // B
+                rgba[i * 4 + 3] = 140 // A
+            }
+        }
+
+        guard let provider = CGDataProvider(data: rgba as CFData),
+              let cgImage = CGImage(
+                  width: w, height: h,
+                  bitsPerComponent: 8,
+                  bitsPerPixel: 32,
+                  bytesPerRow: w * 4,
+                  space: CGColorSpaceCreateDeviceRGB(),
+                  bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue),
+                  provider: provider,
+                  decode: nil,
+                  shouldInterpolate: false,
+                  intent: .defaultIntent
+              ) else { return }
+
+        maskLayer.contents = cgImage
+        maskLayer.frame = imageView.bounds
+    }
+
+    // MARK: - Helpers
+
+    private func imageRectInView() -> CGRect {
+        guard let image = imageView.image else { return .zero }
+        let imageSize = image.size
+        let viewSize = imageView.bounds.size
+        guard viewSize.width > 0, viewSize.height > 0 else { return .zero }
+
+        let imageAspect = imageSize.width / imageSize.height
+        let viewAspect = viewSize.width / viewSize.height
+
+        var drawSize: CGSize
+        if imageAspect > viewAspect {
+            drawSize = CGSize(width: viewSize.width, height: viewSize.width / imageAspect)
+        } else {
+            drawSize = CGSize(width: viewSize.height * imageAspect, height: viewSize.height)
+        }
+
+        let x = (viewSize.width - drawSize.width) / 2
+        let y = (viewSize.height - drawSize.height) / 2
+
+        return CGRect(origin: CGPoint(x: x, y: y), size: drawSize)
     }
 
     private func makeNSImage(from frame: FfiFrame) -> NSImage? {

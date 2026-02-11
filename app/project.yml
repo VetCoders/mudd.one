@@ -27,11 +27,16 @@ targets:
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: 1
         GENERATE_INFOPLIST_FILE: true
-        LIBRARY_SEARCH_PATHS:
-          - "$(PROJECT_DIR)/../target/release"
         SWIFT_OBJC_BRIDGING_HEADER: "mudd/Bridge/mudd_ffiFFI.h"
         OTHER_LDFLAGS:
-          - "-lmudd_ffi"
+          - "$(PROJECT_DIR)/../target/release/libmudd_ffi.a"
+          - "-lc++"
+          - "-L/opt/homebrew/lib"
+          - "-lavformat"
+          - "-lavcodec"
+          - "-lavutil"
+          - "-lswscale"
+          - "-lavdevice"
           - "-framework"
           - "CoreML"
           - "-framework"
@@ -40,9 +45,3 @@ targets:
           - "SystemConfiguration"
         HEADER_SEARCH_PATHS:
           - "$(PROJECT_DIR)/mudd/Bridge"
-    preBuildScripts:
-      - name: "Build Rust FFI"
-        script: |
-          cd "${PROJECT_DIR}/.."
-          ./scripts/build-rust.sh
-        basedOnDependencyAnalysis: false

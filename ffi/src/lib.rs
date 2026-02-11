@@ -68,10 +68,10 @@ pub enum FfiFilterType {
 }
 
 // ═══════════════════════════════════════════════════════════
-// Conversion helpers
+// Conversion helpers (owned — no unnecessary clones)
 // ═══════════════════════════════════════════════════════════
 
-fn ffi_to_frame(f: &FfiFrame) -> Frame {
+fn ffi_to_frame(f: FfiFrame) -> Frame {
     let colorspace = match f.channels {
         1 => ColorSpace::Grayscale,
         3 => ColorSpace::Rgb,
@@ -79,7 +79,7 @@ fn ffi_to_frame(f: &FfiFrame) -> Frame {
         _ => ColorSpace::Rgb,
     };
     Frame {
-        data: f.data.clone(),
+        data: f.data,
         width: f.width,
         height: f.height,
         colorspace,
@@ -89,12 +89,12 @@ fn ffi_to_frame(f: &FfiFrame) -> Frame {
     }
 }
 
-fn frame_to_ffi(f: &Frame) -> FfiFrame {
+fn frame_to_ffi(f: Frame) -> FfiFrame {
     FfiFrame {
-        data: f.data.clone(),
+        channels: f.colorspace.channels() as u8,
+        data: f.data,
         width: f.width,
         height: f.height,
-        channels: f.colorspace.channels() as u8,
     }
 }
 
@@ -141,7 +141,7 @@ pub fn engine_model_name() -> Option<String> {
 #[uniffi::export]
 pub fn load_file(path: String) -> Result<Vec<FfiFrame>, MuddError> {
     let seq = mudd_core::dicom::reader::load_file(&path)?;
-    Ok(seq.frames.iter().map(frame_to_ffi).collect())
+    Ok(seq.frames.into_iter().map(frame_to_ffi).collect())
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -150,7 +150,7 @@ pub fn load_file(path: String) -> Result<Vec<FfiFrame>, MuddError> {
 
 #[uniffi::export]
 pub fn detect_roi(frame: FfiFrame) -> Result<FfiRoi, MuddError> {
-    let f = ffi_to_frame(&frame);
+    let f = ffi_to_frame(frame);
     let roi = mudd_core::imaging::roi::detect_roi(&f)?;
     Ok(FfiRoi {
         x: roi.x,
@@ -162,7 +162,7 @@ pub fn detect_roi(frame: FfiFrame) -> Result<FfiRoi, MuddError> {
 
 #[uniffi::export]
 pub fn crop_frame(frame: FfiFrame, roi: FfiRoi) -> Result<FfiFrame, MuddError> {
-    let f = ffi_to_frame(&frame);
+    let f = ffi_to_frame(frame);
     let r = Roi {
         x: roi.x,
         y: roi.y,
@@ -170,7 +170,7 @@ pub fn crop_frame(frame: FfiFrame, roi: FfiRoi) -> Result<FfiFrame, MuddError> {
         height: roi.height,
     };
     let cropped = mudd_core::imaging::crop::crop_frame(&f, &r)?;
-    Ok(frame_to_ffi(&cropped))
+    Ok(frame_to_ffi(cropped))
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -179,10 +179,10 @@ pub fn crop_frame(frame: FfiFrame, roi: FfiRoi) -> Result<FfiFrame, MuddError> {
 
 #[uniffi::export]
 pub fn apply_filter(frame: FfiFrame, filter_type: FfiFilterType) -> Result<FfiFrame, MuddError> {
-    let f = ffi_to_frame(&frame);
+    let f = ffi_to_frame(frame);
     let ft = ffi_to_filter(&filter_type);
     let result = mudd_core::imaging::filters::apply_filter(&f, ft)?;
-    Ok(frame_to_ffi(&result))
+    Ok(frame_to_ffi(result))
 }
 
 #[uniffi::export]
@@ -190,10 +190,10 @@ pub fn apply_filters(
     frame: FfiFrame,
     filter_types: Vec<FfiFilterType>,
 ) -> Result<FfiFrame, MuddError> {
-    let f = ffi_to_frame(&frame);
+    let f = ffi_to_frame(frame);
     let fts: Vec<FilterType> = filter_types.iter().map(ffi_to_filter).collect();
     let result = mudd_core::imaging::filters::apply_filters(&f, &fts)?;
-    Ok(frame_to_ffi(&result))
+    Ok(frame_to_ffi(result))
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -205,7 +205,7 @@ pub fn segment_frame(
     frame: FfiFrame,
     prompts: Vec<FfiPromptPoint>,
 ) -> Result<Vec<FfiMask>, MuddError> {
-    let f = ffi_to_frame(&frame);
+    let f = ffi_to_frame(frame);
     let pts: Vec<mudd_core::inference::segmentation::PromptPoint> = prompts
         .iter()
         .map(|p| mudd_core::inference::segmentation::PromptPoint {
@@ -216,12 +216,12 @@ pub fn segment_frame(
         .collect();
     let masks = mudd_core::inference::segmentation::segment_frame(&f, &pts)?;
     Ok(masks
-        .iter()
+        .into_iter()
         .map(|m| FfiMask {
-            data: m.data.clone(),
+            data: m.data,
             width: m.width,
             height: m.height,
-            label: m.label.clone(),
+            label: m.label,
         })
         .collect())
 }

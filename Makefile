@@ -119,7 +119,7 @@ xcode:
 
 app: bindings xcode
 	@echo "Building mudd.app..."
-	@xcodebuild -project app/mudd.xcodeproj -scheme mudd -configuration Debug build 2>&1 | tail -3
+	@set -o pipefail && xcodebuild -project app/mudd.xcodeproj -scheme mudd -configuration Debug build 2>&1 | tail -5
 	@echo "App built"
 
 # ============================================================================
