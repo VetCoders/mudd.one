@@ -13,5 +13,7 @@ path = "src/lib.rs"
 [dependencies]
 mudd-core = { path = "../core" }
 uniffi = "0.30"
+thiserror = "2"
+anyhow = "1"
 
 [build-dependencies]

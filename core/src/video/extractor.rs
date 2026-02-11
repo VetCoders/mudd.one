@@ -6,8 +6,8 @@ use crate::imaging::types::{ColorSpace, Frame, FrameSequence, FrameSource};
 pub fn load_video(path: &str) -> Result<FrameSequence> {
     ffmpeg_next::init().context("failed to initialize ffmpeg")?;
 
-    let mut ictx =
-        ffmpeg_next::format::input(path).with_context(|| format!("failed to open video: {path}"))?;
+    let mut ictx = ffmpeg_next::format::input(path)
+        .with_context(|| format!("failed to open video: {path}"))?;
 
     let stream_index = ictx
         .streams()
@@ -49,12 +49,24 @@ pub fn load_video(path: &str) -> Result<FrameSequence> {
         }
 
         decoder.send_packet(&packet)?;
-        decode_pending(&mut decoder, &mut scaler, &mut frames, &mut frame_index, &path_str)?;
+        decode_pending(
+            &mut decoder,
+            &mut scaler,
+            &mut frames,
+            &mut frame_index,
+            &path_str,
+        )?;
     }
 
     // Flush decoder (get remaining frames)
     decoder.send_eof()?;
-    decode_pending(&mut decoder, &mut scaler, &mut frames, &mut frame_index, &path_str)?;
+    decode_pending(
+        &mut decoder,
+        &mut scaler,
+        &mut frames,
+        &mut frame_index,
+        &path_str,
+    )?;
 
     tracing::info!(
         "loaded video: {}x{}, {} frames, {:.1} fps",

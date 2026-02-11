@@ -10,7 +10,12 @@ pub fn crop_frame(frame: &Frame, roi: &Roi) -> Result<Frame> {
     if roi.x + roi.width > frame.width || roi.y + roi.height > frame.height {
         bail!(
             "ROI ({},{} {}x{}) exceeds frame dimensions ({}x{})",
-            roi.x, roi.y, roi.width, roi.height, frame.width, frame.height
+            roi.x,
+            roi.y,
+            roi.width,
+            roi.height,
+            frame.width,
+            frame.height
         );
     }
 

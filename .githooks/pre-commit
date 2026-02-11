@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# mudd.one pre-commit hook
+# Runs: fmt-check + cargo check (fast gate)
+# Install: make hooks-install
+set -euo pipefail
+
+echo "pre-commit: checking formatting + compilation..."
+make pre-commit
+
+echo "pre-commit: passed"

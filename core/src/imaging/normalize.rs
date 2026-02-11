@@ -33,29 +33,42 @@ pub fn to_grayscale(frame: &Frame) -> Result<Frame> {
 /// Resize frame to target dimensions
 pub fn resize(frame: &Frame, target_width: u32, target_height: u32) -> Result<Frame> {
     let channels = frame.colorspace.channels() as u32;
-    let img = image::ImageBuffer::from_raw(
-        frame.width,
-        frame.height,
-        frame.data.clone(),
-    )
-    .ok_or_else(|| anyhow::anyhow!("failed to create image buffer"))?;
+    let img = image::ImageBuffer::from_raw(frame.width, frame.height, frame.data.clone())
+        .ok_or_else(|| anyhow::anyhow!("failed to create image buffer"))?;
 
     let resized: image::ImageBuffer<image::Rgba<u8>, Vec<u8>> = match channels {
         1 => {
             let gray: image::GrayImage = img;
-            let r = image::imageops::resize(&gray, target_width, target_height, image::imageops::FilterType::Lanczos3);
+            let r = image::imageops::resize(
+                &gray,
+                target_width,
+                target_height,
+                image::imageops::FilterType::Lanczos3,
+            );
             image::DynamicImage::ImageLuma8(r).to_rgba8()
         }
         3 => {
-            let rgb: image::RgbImage = image::ImageBuffer::from_raw(frame.width, frame.height, frame.data.clone())
-                .ok_or_else(|| anyhow::anyhow!("failed to create rgb buffer"))?;
-            let r = image::imageops::resize(&rgb, target_width, target_height, image::imageops::FilterType::Lanczos3);
+            let rgb: image::RgbImage =
+                image::ImageBuffer::from_raw(frame.width, frame.height, frame.data.clone())
+                    .ok_or_else(|| anyhow::anyhow!("failed to create rgb buffer"))?;
+            let r = image::imageops::resize(
+                &rgb,
+                target_width,
+                target_height,
+                image::imageops::FilterType::Lanczos3,
+            );
             image::DynamicImage::ImageRgb8(r).to_rgba8()
         }
         _ => {
-            let rgba: image::RgbaImage = image::ImageBuffer::from_raw(frame.width, frame.height, frame.data.clone())
-                .ok_or_else(|| anyhow::anyhow!("failed to create rgba buffer"))?;
-            image::imageops::resize(&rgba, target_width, target_height, image::imageops::FilterType::Lanczos3)
+            let rgba: image::RgbaImage =
+                image::ImageBuffer::from_raw(frame.width, frame.height, frame.data.clone())
+                    .ok_or_else(|| anyhow::anyhow!("failed to create rgba buffer"))?;
+            image::imageops::resize(
+                &rgba,
+                target_width,
+                target_height,
+                image::imageops::FilterType::Lanczos3,
+            )
         }
     };
 

@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# mudd.one pre-push hook
+# Runs: full CI (fmt-check + clippy + tests)
+# Install: make hooks-install
+set -euo pipefail
+
+echo "pre-push: running full CI gate..."
+make pre-push
+
+echo "pre-push: passed"

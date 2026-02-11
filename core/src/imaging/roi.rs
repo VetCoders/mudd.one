@@ -1,6 +1,6 @@
 use anyhow::Result;
 use image::{GrayImage, Luma};
-use imageproc::contours::{find_contours, BorderType};
+use imageproc::contours::{BorderType, find_contours};
 
 use super::types::{ColorSpace, Frame, Roi};
 
@@ -62,8 +62,8 @@ pub fn detect_roi(frame: &Frame) -> Result<Roi> {
         let (mut max_x, mut max_y) = (0u32, 0u32);
 
         for point in &contour.points {
-            let px = point.x as u32;
-            let py = point.y as u32;
+            let px = point.x;
+            let py = point.y;
             min_x = min_x.min(px);
             min_y = min_y.min(py);
             max_x = max_x.max(px);

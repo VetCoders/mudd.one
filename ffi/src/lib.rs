@@ -6,6 +6,24 @@ uniffi::setup_scaffolding!();
 use mudd_core::imaging::types::{ColorSpace, FilterType, Frame, FrameSource, Roi};
 
 // ═══════════════════════════════════════════════════════════
+// FFI error type (UniFFI requires a proper error enum)
+// ═══════════════════════════════════════════════════════════
+
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+pub enum MuddError {
+    #[error("{msg}")]
+    Core { msg: String },
+}
+
+impl From<anyhow::Error> for MuddError {
+    fn from(e: anyhow::Error) -> Self {
+        MuddError::Core {
+            msg: format!("{e:#}"),
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
 // FFI types — flat representations for Swift
 // ═══════════════════════════════════════════════════════════
 
@@ -65,7 +83,9 @@ fn ffi_to_frame(f: &FfiFrame) -> Frame {
         width: f.width,
         height: f.height,
         colorspace,
-        source: FrameSource::Image { path: String::new() },
+        source: FrameSource::Image {
+            path: String::new(),
+        },
     }
 }
 
@@ -93,13 +113,15 @@ fn ffi_to_filter(f: &FfiFilterType) -> FilterType {
 // ═══════════════════════════════════════════════════════════
 
 #[uniffi::export]
-pub fn init_engine(model_path: String) -> Result<(), String> {
-    mudd_core::inference::engine::init(&model_path).map_err(|e| format!("{e:#}"))
+pub fn init_engine(model_path: String) -> Result<(), MuddError> {
+    mudd_core::inference::engine::init(&model_path)?;
+    Ok(())
 }
 
 #[uniffi::export]
-pub fn init_engine_from_hf(repo: String, filename: String) -> Result<(), String> {
-    mudd_core::inference::engine::init_from_hf(&repo, &filename).map_err(|e| format!("{e:#}"))
+pub fn init_engine_from_hf(repo: String, filename: String) -> Result<(), MuddError> {
+    mudd_core::inference::engine::init_from_hf(&repo, &filename)?;
+    Ok(())
 }
 
 #[uniffi::export]
@@ -117,9 +139,9 @@ pub fn engine_model_name() -> Option<String> {
 // ═══════════════════════════════════════════════════════════
 
 #[uniffi::export]
-pub fn load_file(path: String) -> Result<Vec<FfiFrame>, String> {
-    let seq = mudd_core::dicom::reader::load_file(&path).map_err(|e| format!("{e:#}"))?;
-    Ok(seq.frames.iter().map(|f| frame_to_ffi(f)).collect())
+pub fn load_file(path: String) -> Result<Vec<FfiFrame>, MuddError> {
+    let seq = mudd_core::dicom::reader::load_file(&path)?;
+    Ok(seq.frames.iter().map(frame_to_ffi).collect())
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -127,9 +149,9 @@ pub fn load_file(path: String) -> Result<Vec<FfiFrame>, String> {
 // ═══════════════════════════════════════════════════════════
 
 #[uniffi::export]
-pub fn detect_roi(frame: FfiFrame) -> Result<FfiRoi, String> {
+pub fn detect_roi(frame: FfiFrame) -> Result<FfiRoi, MuddError> {
     let f = ffi_to_frame(&frame);
-    let roi = mudd_core::imaging::roi::detect_roi(&f).map_err(|e| format!("{e:#}"))?;
+    let roi = mudd_core::imaging::roi::detect_roi(&f)?;
     Ok(FfiRoi {
         x: roi.x,
         y: roi.y,
@@ -139,7 +161,7 @@ pub fn detect_roi(frame: FfiFrame) -> Result<FfiRoi, String> {
 }
 
 #[uniffi::export]
-pub fn crop_frame(frame: FfiFrame, roi: FfiRoi) -> Result<FfiFrame, String> {
+pub fn crop_frame(frame: FfiFrame, roi: FfiRoi) -> Result<FfiFrame, MuddError> {
     let f = ffi_to_frame(&frame);
     let r = Roi {
         x: roi.x,
@@ -147,7 +169,7 @@ pub fn crop_frame(frame: FfiFrame, roi: FfiRoi) -> Result<FfiFrame, String> {
         width: roi.width,
         height: roi.height,
     };
-    let cropped = mudd_core::imaging::crop::crop_frame(&f, &r).map_err(|e| format!("{e:#}"))?;
+    let cropped = mudd_core::imaging::crop::crop_frame(&f, &r)?;
     Ok(frame_to_ffi(&cropped))
 }
 
@@ -156,18 +178,21 @@ pub fn crop_frame(frame: FfiFrame, roi: FfiRoi) -> Result<FfiFrame, String> {
 // ═══════════════════════════════════════════════════════════
 
 #[uniffi::export]
-pub fn apply_filter(frame: FfiFrame, filter_type: FfiFilterType) -> Result<FfiFrame, String> {
+pub fn apply_filter(frame: FfiFrame, filter_type: FfiFilterType) -> Result<FfiFrame, MuddError> {
     let f = ffi_to_frame(&frame);
     let ft = ffi_to_filter(&filter_type);
-    let result = mudd_core::imaging::filters::apply_filter(&f, ft).map_err(|e| format!("{e:#}"))?;
+    let result = mudd_core::imaging::filters::apply_filter(&f, ft)?;
     Ok(frame_to_ffi(&result))
 }
 
 #[uniffi::export]
-pub fn apply_filters(frame: FfiFrame, filter_types: Vec<FfiFilterType>) -> Result<FfiFrame, String> {
+pub fn apply_filters(
+    frame: FfiFrame,
+    filter_types: Vec<FfiFilterType>,
+) -> Result<FfiFrame, MuddError> {
     let f = ffi_to_frame(&frame);
     let fts: Vec<FilterType> = filter_types.iter().map(ffi_to_filter).collect();
-    let result = mudd_core::imaging::filters::apply_filters(&f, &fts).map_err(|e| format!("{e:#}"))?;
+    let result = mudd_core::imaging::filters::apply_filters(&f, &fts)?;
     Ok(frame_to_ffi(&result))
 }
 
@@ -176,7 +201,10 @@ pub fn apply_filters(frame: FfiFrame, filter_types: Vec<FfiFilterType>) -> Resul
 // ═══════════════════════════════════════════════════════════
 
 #[uniffi::export]
-pub fn segment_frame(frame: FfiFrame, prompts: Vec<FfiPromptPoint>) -> Result<Vec<FfiMask>, String> {
+pub fn segment_frame(
+    frame: FfiFrame,
+    prompts: Vec<FfiPromptPoint>,
+) -> Result<Vec<FfiMask>, MuddError> {
     let f = ffi_to_frame(&frame);
     let pts: Vec<mudd_core::inference::segmentation::PromptPoint> = prompts
         .iter()
@@ -186,8 +214,7 @@ pub fn segment_frame(frame: FfiFrame, prompts: Vec<FfiPromptPoint>) -> Result<Ve
             label: p.label,
         })
         .collect();
-    let masks = mudd_core::inference::segmentation::segment_frame(&f, &pts)
-        .map_err(|e| format!("{e:#}"))?;
+    let masks = mudd_core::inference::segmentation::segment_frame(&f, &pts)?;
     Ok(masks
         .iter()
         .map(|m| FfiMask {

@@ -120,7 +120,7 @@ fn resolve_model_path(repo: &str, filename: &str) -> Result<PathBuf> {
                         .metadata()
                         .and_then(|m| m.modified())
                         .unwrap_or(std::time::UNIX_EPOCH);
-                    if best.as_ref().map_or(true, |(_, t)| mtime > *t) {
+                    if best.as_ref().is_none_or(|(_, t)| mtime > *t) {
                         best = Some((candidate, mtime));
                     }
                 }

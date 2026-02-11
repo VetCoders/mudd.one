@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use anyhow::{Result, Context, bail};
+use anyhow::{Context, Result, bail};
 
 use crate::imaging::types::{ColorSpace, Frame, FrameSequence, FrameSource};
 
@@ -27,9 +27,7 @@ pub fn load_file(path: &str) -> Result<FrameSequence> {
         load_image(path)
     } else {
         // Try DICOM first (many DICOM files have no extension)
-        load_dicom(path).or_else(|_| {
-            bail!("unsupported file format: .{ext}")
-        })
+        load_dicom(path).or_else(|_| bail!("unsupported file format: .{ext}"))
     }
 }
 
@@ -55,7 +53,8 @@ pub fn load_dicom(path: &str) -> Result<FrameSequence> {
     let mut frames = Vec::with_capacity(n_frames);
 
     for i in 0..n_frames {
-        let data: Vec<u8> = pixel_data.to_vec_frame(i as u32)
+        let data: Vec<u8> = pixel_data
+            .to_vec_frame(i as u32)
             .with_context(|| format!("failed to extract frame {i}/{n_frames}"))?;
 
         frames.push(Frame {
@@ -75,8 +74,7 @@ pub fn load_dicom(path: &str) -> Result<FrameSequence> {
 
 /// Load a regular image file (PNG, JPEG, BMP, TIFF)
 pub fn load_image(path: &str) -> Result<FrameSequence> {
-    let img = image::open(path)
-        .with_context(|| format!("failed to open image: {path}"))?;
+    let img = image::open(path).with_context(|| format!("failed to open image: {path}"))?;
 
     let (width, height) = (img.width(), img.height());
 
@@ -85,9 +83,7 @@ pub fn load_image(path: &str) -> Result<FrameSequence> {
         image::ColorType::L8 | image::ColorType::L16 => {
             (img.to_luma8().into_raw(), ColorSpace::Grayscale)
         }
-        _ => {
-            (img.to_rgb8().into_raw(), ColorSpace::Rgb)
-        }
+        _ => (img.to_rgb8().into_raw(), ColorSpace::Rgb),
     };
 
     tracing::info!("loaded image: {width}x{height}, {colorspace:?}");

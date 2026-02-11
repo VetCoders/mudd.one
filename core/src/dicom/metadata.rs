@@ -28,20 +28,15 @@ pub fn extract_metadata(path: &str) -> Result<FrameMetadata> {
         .transpose()?
         .unwrap_or(1);
 
-    let pixel_spacing = obj
-        .element_opt(tags::PIXEL_SPACING)?
-        .and_then(|e| {
-            let s = e.to_str().ok()?;
-            let parts: Vec<&str> = s.split('\\').collect();
-            if parts.len() == 2 {
-                Some((
-                    parts[0].parse::<f64>().ok()?,
-                    parts[1].parse::<f64>().ok()?,
-                ))
-            } else {
-                None
-            }
-        });
+    let pixel_spacing = obj.element_opt(tags::PIXEL_SPACING)?.and_then(|e| {
+        let s = e.to_str().ok()?;
+        let parts: Vec<&str> = s.split('\\').collect();
+        if parts.len() == 2 {
+            Some((parts[0].parse::<f64>().ok()?, parts[1].parse::<f64>().ok()?))
+        } else {
+            None
+        }
+    });
 
     Ok(FrameMetadata {
         patient_id,

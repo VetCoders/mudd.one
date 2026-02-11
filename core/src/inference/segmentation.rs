@@ -1,9 +1,9 @@
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
 use ndarray::Array;
 use ort::value::Value;
 
-use crate::imaging::types::{ColorSpace, Frame, Mask};
 use crate::imaging::normalize;
+use crate::imaging::types::{ColorSpace, Frame, Mask};
 
 /// Prompt point for segmentation (x, y in pixel coords, label: 1=foreground, 0=background)
 #[derive(Debug, Clone, Copy)]
@@ -60,8 +60,8 @@ pub fn segment_frame(frame: &Frame, prompts: &[PromptPoint]) -> Result<Vec<Mask>
     for y in 0..h {
         for x in 0..w {
             let src_idx = (y * w + x) * 3;
-            tensor_data[0 * h * w + y * w + x] = resized.data[src_idx] as f32 / 255.0;     // R
-            tensor_data[1 * h * w + y * w + x] = resized.data[src_idx + 1] as f32 / 255.0; // G
+            tensor_data[y * w + x] = resized.data[src_idx] as f32 / 255.0; // R
+            tensor_data[h * w + y * w + x] = resized.data[src_idx + 1] as f32 / 255.0; // G
             tensor_data[2 * h * w + y * w + x] = resized.data[src_idx + 2] as f32 / 255.0; // B
         }
     }

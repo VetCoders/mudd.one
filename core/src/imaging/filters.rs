@@ -1,4 +1,4 @@
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
 use image::GrayImage;
 use imageproc::contrast;
 use imageproc::edges;
@@ -34,7 +34,9 @@ fn to_gray_image(frame: &Frame) -> Result<GrayImage> {
             frame
                 .data
                 .chunks_exact(channels)
-                .map(|px| (0.299 * px[0] as f32 + 0.587 * px[1] as f32 + 0.114 * px[2] as f32) as u8)
+                .map(|px| {
+                    (0.299 * px[0] as f32 + 0.587 * px[1] as f32 + 0.114 * px[2] as f32) as u8
+                })
                 .collect()
         }
     };

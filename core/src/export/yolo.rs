@@ -27,7 +27,14 @@ pub fn export_yolo(config: &ExportConfig, items: &[ExportItem]) -> Result<()> {
 
         // Save image
         let image_path = images_dir.join(format!("{stem}.{ext}"));
-        save_frame(&frame.data, frame.width, frame.height, frame.colorspace, &image_path, config.image_format)?;
+        save_frame(
+            &frame.data,
+            frame.width,
+            frame.height,
+            frame.colorspace,
+            &image_path,
+            config.image_format,
+        )?;
 
         // Generate label file
         let label_path = labels_dir.join(format!("{stem}.txt"));
