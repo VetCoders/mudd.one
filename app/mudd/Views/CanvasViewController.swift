@@ -13,6 +13,7 @@ class CanvasViewController: NSViewController {
     private let roiLayer = CAShapeLayer()
     private var dragStart: NSPoint?
     private var isDragging = false
+    private var currentRoi: FfiRoi?
 
     // Segmentation overlay
     private let maskLayer = CALayer()
@@ -104,15 +105,18 @@ class CanvasViewController: NSViewController {
 
     override func viewDidLayout() {
         super.viewDidLayout()
-        // Re-add overlay layers after layout
         if roiLayer.superlayer == nil {
             imageView.layer?.addSublayer(roiLayer)
         }
         if maskLayer.superlayer == nil {
             imageView.layer?.addSublayer(maskLayer)
         }
+        // ROI layer covers full imageView (path coords are absolute within it)
         roiLayer.frame = imageView.bounds
-        maskLayer.frame = imageView.bounds
+        // Mask layer must track letterbox rect
+        if maskLayer.contents != nil {
+            maskLayer.frame = imageRectInView()
+        }
     }
 
     // MARK: - File loading
@@ -185,6 +189,10 @@ class CanvasViewController: NSViewController {
         showFrame(at: idx)
         updateFrameLabel()
         clearOverlays()
+        NotificationCenter.default.post(
+            name: .muddCurrentIndexChanged, object: nil,
+            userInfo: ["index": idx]
+        )
     }
 
     private func updateFrameLabel() {
@@ -385,12 +393,20 @@ class CanvasViewController: NSViewController {
     private func displayMasks(_ masks: [FfiMask]) {
         guard let first = masks.first else { return }
 
-        // Create mask image (green overlay)
         let w = Int(first.width)
         let h = Int(first.height)
-        var rgba = Data(count: w * h * 4)
+        let pixelCount = w * h
 
-        for i in 0 ..< w * h {
+        // Guard: mask data must have at least w*h bytes
+        guard first.data.count >= pixelCount else {
+            statusLabel.stringValue = "Mask data too short (\(first.data.count) < \(pixelCount))"
+            return
+        }
+
+        // Create mask image (green overlay)
+        var rgba = Data(count: pixelCount * 4)
+
+        for i in 0 ..< pixelCount {
             let val = first.data[i]
             if val > 127 {
                 rgba[i * 4] = 0       // R
@@ -414,8 +430,10 @@ class CanvasViewController: NSViewController {
                   intent: .defaultIntent
               ) else { return }
 
+        // Position mask layer to match image rect (letterbox-aware)
+        let imgRect = imageRectInView()
         maskLayer.contents = cgImage
-        maskLayer.frame = imageView.bounds
+        maskLayer.frame = imgRect
     }
 
     // MARK: - Helpers

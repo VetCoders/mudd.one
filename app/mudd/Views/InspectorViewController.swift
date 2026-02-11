@@ -103,6 +103,10 @@ class InspectorViewController: NSViewController {
             self, selector: #selector(handleFrameUpdated),
             name: .muddFrameUpdated, object: nil
         )
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleIndexChanged),
+            name: .muddCurrentIndexChanged, object: nil
+        )
     }
 
     // MARK: - Notifications
@@ -122,16 +126,19 @@ class InspectorViewController: NSViewController {
         guard let frame = notification.userInfo?["frame"] as? FfiFrame,
               let index = notification.userInfo?["index"] as? Int else { return }
 
+        let source = notification.userInfo?["source"] as? String ?? "crop"
+
         if index < currentFrames.count {
             currentFrames[index] = frame
-            originalFrames[index] = frame
+            // Only overwrite original for destructive ops (crop), not filters
+            if source == "crop" {
+                originalFrames[index] = frame
+                for (btn, _) in filterButtons {
+                    btn.state = .off
+                }
+            }
         }
         updateInfoLabel(frame, count: currentFrames.count)
-
-        // Uncheck all filters after crop (frame changed)
-        for (btn, _) in filterButtons {
-            btn.state = .off
-        }
     }
 
     private func updateInfoLabel(_ frame: FfiFrame, count: Int) {
@@ -163,6 +170,18 @@ class InspectorViewController: NSViewController {
         resetFiltersButton.isEnabled = enabled
     }
 
+    @objc private func handleIndexChanged(_ notification: Notification) {
+        guard let index = notification.userInfo?["index"] as? Int else { return }
+        currentIndex = index
+        // Reset filter checkboxes when switching frames
+        for (btn, _) in filterButtons {
+            btn.state = .off
+        }
+        if index < currentFrames.count {
+            updateInfoLabel(currentFrames[index], count: currentFrames.count)
+        }
+    }
+
     // MARK: - Filters
 
     @objc private func filterToggled() {
@@ -186,7 +205,7 @@ class InspectorViewController: NSViewController {
                     self?.currentFrames[self?.currentIndex ?? 0] = result
                     NotificationCenter.default.post(
                         name: .muddFrameUpdated, object: self,
-                        userInfo: ["frame": result, "index": self?.currentIndex ?? 0]
+                        userInfo: ["frame": result, "index": self?.currentIndex ?? 0, "source": "filter"]
                     )
                 }
             } catch {
@@ -211,7 +230,7 @@ class InspectorViewController: NSViewController {
         currentFrames[currentIndex] = original
         NotificationCenter.default.post(
             name: .muddFrameUpdated, object: self,
-            userInfo: ["frame": original, "index": currentIndex]
+            userInfo: ["frame": original, "index": currentIndex, "source": "filter"]
         )
     }
 }

@@ -153,6 +153,10 @@ class SidebarViewController: NSViewController {
             self, selector: #selector(handleManualRoi),
             name: .muddRoiManual, object: nil
         )
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleIndexChanged),
+            name: .muddCurrentIndexChanged, object: nil
+        )
     }
 
     // MARK: - Notifications
@@ -180,6 +184,14 @@ class SidebarViewController: NSViewController {
         currentRoi = roi
         cropButton.isEnabled = true
         clearRoiButton.isEnabled = true
+    }
+
+    @objc private func handleIndexChanged(_ notification: Notification) {
+        guard let index = notification.userInfo?["index"] as? Int else { return }
+        currentIndex = index
+        currentRoi = nil
+        cropButton.isEnabled = false
+        clearRoiButton.isEnabled = false
     }
 
     // MARK: - File
@@ -261,7 +273,7 @@ class SidebarViewController: NSViewController {
                     self?.clearRoiButton.isEnabled = false
                     NotificationCenter.default.post(
                         name: .muddFrameUpdated, object: nil,
-                        userInfo: ["frame": cropped, "index": self?.currentIndex ?? 0]
+                        userInfo: ["frame": cropped, "index": self?.currentIndex ?? 0, "source": "crop"]
                     )
                 }
             } catch {
@@ -396,5 +408,5 @@ extension Notification.Name {
     static let muddRoiDetected = Notification.Name("muddRoiDetected")
     static let muddRoiManual = Notification.Name("muddRoiManual")
     static let muddFrameUpdated = Notification.Name("muddFrameUpdated")
-    static let muddRequestCurrentFrame = Notification.Name("muddRequestCurrentFrame")
+    static let muddCurrentIndexChanged = Notification.Name("muddCurrentIndexChanged")
 }
