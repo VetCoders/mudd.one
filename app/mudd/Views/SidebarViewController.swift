@@ -5,27 +5,25 @@ import AppKit
 
 class SidebarViewController: NSViewController {
     private let stackView = NSStackView()
-    private let titleLabel = NSTextField(labelWithString: "mudd.one")
-    private let openButton = NSButton(title: "Open File...", target: nil, action: nil)
 
     // ROI
     private let roiSeparator = NSBox()
     private let roiLabel = NSTextField(labelWithString: "ROI")
     private let autoRoiButton = NSButton(title: "Auto ROI", target: nil, action: nil)
-    private let cropButton = NSButton(title: "Apply Crop", target: nil, action: nil)
-    private let clearRoiButton = NSButton(title: "Clear ROI", target: nil, action: nil)
+    private let cropButton = NSButton(title: "Crop", target: nil, action: nil)
+    private let clearRoiButton = NSButton(title: "Clear", target: nil, action: nil)
 
     // Segmentation
     private let segSeparator = NSBox()
     private let segLabel = NSTextField(labelWithString: "Segmentation")
-    private let initEngineButton = NSButton(title: "Init Engine...", target: nil, action: nil)
+    private let initEngineButton = NSButton(title: "Load Model...", target: nil, action: nil)
     private let engineStatusLabel = NSTextField(labelWithString: "Engine: not loaded")
     private let segModeButton = NSButton(title: "Prompt Mode", target: nil, action: nil)
 
     // Export
     private let exportSeparator = NSBox()
     private let exportLabel = NSTextField(labelWithString: "Export")
-    private let exportButton = NSButton(title: "Export Dataset...", target: nil, action: nil)
+    private let exportButton = NSButton(title: "Export...", target: nil, action: nil)
 
     private var currentFrames: [FfiFrame] = []
     private var currentIndex: Int = 0
@@ -40,30 +38,22 @@ class SidebarViewController: NSViewController {
         container.wantsLayer = true
         view = container
 
-        titleLabel.font = .boldSystemFont(ofSize: 16)
-        titleLabel.alignment = .center
-
-        // Open
-        openButton.bezelStyle = .rounded
-        openButton.target = self
-        openButton.action = #selector(openFile)
-
         // ROI section
         roiSeparator.boxType = .separator
         roiLabel.font = .boldSystemFont(ofSize: 11)
         roiLabel.textColor = .secondaryLabelColor
 
-        autoRoiButton.bezelStyle = .rounded
+        configureSFButton(autoRoiButton, symbol: "crop", label: "Auto ROI")
         autoRoiButton.target = self
         autoRoiButton.action = #selector(detectAutoRoi)
         autoRoiButton.isEnabled = false
 
-        cropButton.bezelStyle = .rounded
+        configureSFButton(cropButton, symbol: "crop.rotate", label: "Crop")
         cropButton.target = self
         cropButton.action = #selector(applyCrop)
         cropButton.isEnabled = false
 
-        clearRoiButton.bezelStyle = .rounded
+        configureSFButton(clearRoiButton, symbol: "xmark.circle", label: "Clear")
         clearRoiButton.target = self
         clearRoiButton.action = #selector(clearRoi)
         clearRoiButton.isEnabled = false
@@ -73,7 +63,7 @@ class SidebarViewController: NSViewController {
         segLabel.font = .boldSystemFont(ofSize: 11)
         segLabel.textColor = .secondaryLabelColor
 
-        initEngineButton.bezelStyle = .rounded
+        configureSFButton(initEngineButton, symbol: "brain", label: "Load Model...")
         initEngineButton.target = self
         initEngineButton.action = #selector(openModelFile)
 
@@ -81,7 +71,7 @@ class SidebarViewController: NSViewController {
         engineStatusLabel.textColor = .tertiaryLabelColor
         engineStatusLabel.alignment = .center
 
-        segModeButton.bezelStyle = .rounded
+        configureSFButton(segModeButton, symbol: "hand.point.up.left", label: "Prompt Mode")
         segModeButton.setButtonType(.toggle)
         segModeButton.target = self
         segModeButton.action = #selector(toggleSegMode)
@@ -92,7 +82,7 @@ class SidebarViewController: NSViewController {
         exportLabel.font = .boldSystemFont(ofSize: 11)
         exportLabel.textColor = .secondaryLabelColor
 
-        exportButton.bezelStyle = .rounded
+        configureSFButton(exportButton, symbol: "square.and.arrow.up", label: "Export...")
         exportButton.target = self
         exportButton.action = #selector(openExportPanel)
         exportButton.isEnabled = false
@@ -103,14 +93,6 @@ class SidebarViewController: NSViewController {
         stackView.spacing = 8
         stackView.edgeInsets = NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
         stackView.translatesAutoresizingMaskIntoConstraints = false
-
-        stackView.addArrangedSubview(titleLabel)
-
-        // File
-        let fileSeparator = NSBox()
-        fileSeparator.boxType = .separator
-        stackView.addArrangedSubview(fileSeparator)
-        stackView.addArrangedSubview(openButton)
 
         // ROI
         stackView.addArrangedSubview(roiSeparator)
@@ -222,6 +204,15 @@ class SidebarViewController: NSViewController {
         currentRoi = nil
         cropButton.isEnabled = false
         clearRoiButton.isEnabled = false
+    }
+
+    // MARK: - Helpers
+
+    private func configureSFButton(_ button: NSButton, symbol: String, label: String) {
+        button.bezelStyle = .accessoryBarAction
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
+        button.imagePosition = .imageLeading
+        button.title = label
     }
 
     // MARK: - File

@@ -18,3 +18,5 @@ xcuserdata/
 app/mudd/Bridge/mudd_ffi.swift
 app/mudd/Bridge/mudd_ffiFFI.h
 app/mudd/Bridge/mudd_ffiFFI.modulemap
+/build
+CLAUDE.md

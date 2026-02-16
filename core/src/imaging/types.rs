@@ -91,3 +91,61 @@ pub struct FrameMetadata {
     pub frame_index: usize,
     pub total_frames: usize,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn gray_frame(w: u32, h: u32) -> Frame {
+        Frame {
+            data: vec![128u8; (w * h) as usize],
+            width: w,
+            height: h,
+            colorspace: ColorSpace::Grayscale,
+            source: FrameSource::Image {
+                path: String::new(),
+            },
+        }
+    }
+
+    #[test]
+    fn colorspace_channels() {
+        assert_eq!(ColorSpace::Grayscale.channels(), 1);
+        assert_eq!(ColorSpace::Rgb.channels(), 3);
+        assert_eq!(ColorSpace::Rgba.channels(), 4);
+    }
+
+    #[test]
+    fn frame_stride_grayscale() {
+        let f = gray_frame(100, 50);
+        assert_eq!(f.stride(), 100);
+    }
+
+    #[test]
+    fn frame_stride_rgb() {
+        let f = Frame {
+            data: vec![0u8; 300 * 200 * 3],
+            width: 300,
+            height: 200,
+            colorspace: ColorSpace::Rgb,
+            source: FrameSource::Image {
+                path: String::new(),
+            },
+        };
+        assert_eq!(f.stride(), 900);
+    }
+
+    #[test]
+    fn frame_pixel_count() {
+        let f = gray_frame(640, 480);
+        assert_eq!(f.pixel_count(), 307200);
+    }
+
+    #[test]
+    fn frame_metadata_default() {
+        let m = FrameMetadata::default();
+        assert_eq!(m.frame_index, 0);
+        assert_eq!(m.total_frames, 0);
+        assert!(m.patient_id.is_none());
+    }
+}

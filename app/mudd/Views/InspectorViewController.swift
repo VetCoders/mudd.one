@@ -18,6 +18,7 @@ class InspectorViewController: NSViewController {
     private var originalFrames: [FfiFrame] = []
     private var currentFrames: [FfiFrame] = []
     private var currentIndex: Int = 0
+    private var sessionId: UInt64 = 0
 
     override func loadView() {
         let container = NSView()
@@ -27,7 +28,7 @@ class InspectorViewController: NSViewController {
         titleLabel.font = .boldSystemFont(ofSize: 14)
         titleLabel.alignment = .center
 
-        infoLabel.font = .systemFont(ofSize: 11)
+        infoLabel.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
         infoLabel.textColor = .secondaryLabelColor
 
         // Filter section
@@ -45,17 +46,18 @@ class InspectorViewController: NSViewController {
 
         for (name, filterType) in filters {
             let btn = NSButton(checkboxWithTitle: name, target: self, action: #selector(filterToggled))
+            btn.controlSize = .small
             btn.font = .systemFont(ofSize: 11)
             btn.isEnabled = false
             filterButtons.append((btn, filterType))
         }
 
-        applyFiltersButton.bezelStyle = .rounded
+        applyFiltersButton.bezelStyle = .accessoryBarAction
         applyFiltersButton.target = self
         applyFiltersButton.action = #selector(applySelectedFilters)
         applyFiltersButton.isEnabled = false
 
-        resetFiltersButton.bezelStyle = .rounded
+        resetFiltersButton.bezelStyle = .accessoryBarAction
         resetFiltersButton.target = self
         resetFiltersButton.action = #selector(resetFilters)
         resetFiltersButton.isEnabled = false
@@ -115,6 +117,7 @@ class InspectorViewController: NSViewController {
         guard let frames = notification.userInfo?["frames"] as? [FfiFrame],
               let first = frames.first else { return }
 
+        sessionId += 1
         originalFrames = frames
         currentFrames = frames
         currentIndex = 0
@@ -193,6 +196,7 @@ class InspectorViewController: NSViewController {
         guard !selected.isEmpty, !originalFrames.isEmpty else { return }
 
         let idx = currentIndex
+        let session = sessionId
         let frame = originalFrames[idx]
         applyFiltersButton.isEnabled = false
         applyFiltersButton.title = "Applying..."
@@ -201,6 +205,7 @@ class InspectorViewController: NSViewController {
             do {
                 let result = try applyFilters(frame: frame, filterTypes: selected)
                 DispatchQueue.main.async {
+                    guard self?.sessionId == session else { return }
                     self?.applyFiltersButton.title = "Apply Filters"
                     self?.applyFiltersButton.isEnabled = true
                     if idx < (self?.currentFrames.count ?? 0) {
@@ -213,6 +218,7 @@ class InspectorViewController: NSViewController {
                 }
             } catch {
                 DispatchQueue.main.async {
+                    guard self?.sessionId == session else { return }
                     self?.applyFiltersButton.title = "Apply Filters"
                     self?.applyFiltersButton.isEnabled = true
                     let alert = NSAlert()

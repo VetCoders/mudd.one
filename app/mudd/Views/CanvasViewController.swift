@@ -32,7 +32,7 @@ class CanvasViewController: NSViewController {
         imageView.imageScaling = .scaleProportionallyUpOrDown
         imageView.imageAlignment = .alignCenter
         imageView.wantsLayer = true
-        imageView.layer?.backgroundColor = NSColor.black.cgColor
+        imageView.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
         imageView.translatesAutoresizingMaskIntoConstraints = false
 
         // ROI overlay layer
@@ -50,6 +50,7 @@ class CanvasViewController: NSViewController {
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
 
         // Sequence navigator
+        sequenceSlider.controlSize = .small
         sequenceSlider.target = self
         sequenceSlider.action = #selector(sliderChanged)
         sequenceSlider.isHidden = true

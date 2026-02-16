@@ -27,7 +27,10 @@ targets:
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: 1
         GENERATE_INFOPLIST_FILE: true
+        INFOPLIST_KEY_NSPrincipalClass: NSApplication
         SWIFT_OBJC_BRIDGING_HEADER: "mudd/Bridge/mudd_ffiFFI.h"
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
         OTHER_LDFLAGS:
           - "$(PROJECT_DIR)/../target/release/libmudd_ffi.a"
           - "-lc++"
@@ -45,3 +48,8 @@ targets:
           - "SystemConfiguration"
         HEADER_SEARCH_PATHS:
           - "$(PROJECT_DIR)/mudd/Bridge"
+      configs:
+        Release:
+          SWIFT_OPTIMIZATION_LEVEL: "-O"
+          GCC_OPTIMIZATION_LEVEL: "s"
+          SWIFT_COMPILATION_MODE: wholemodule

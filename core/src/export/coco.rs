@@ -217,3 +217,141 @@ struct CocoCategory {
     id: u64,
     name: String,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::imaging::types::Mask;
+
+    fn mask_with_rect(w: u32, h: u32, x0: u32, y0: u32, x1: u32, y1: u32) -> Mask {
+        let mut data = vec![0u8; (w * h) as usize];
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                data[(y * w + x) as usize] = 255;
+            }
+        }
+        Mask {
+            data,
+            width: w,
+            height: h,
+            label: "test".to_string(),
+        }
+    }
+
+    #[test]
+    fn bbox_known_rect() {
+        let mask = mask_with_rect(10, 10, 2, 3, 5, 7);
+        let bbox = mask_to_bbox(&mask);
+        assert_eq!(bbox[0], 2.0); // x
+        assert_eq!(bbox[1], 3.0); // y
+        assert_eq!(bbox[2], 3.0); // width (5-2)
+        assert_eq!(bbox[3], 4.0); // height (7-3)
+    }
+
+    #[test]
+    fn bbox_empty_mask() {
+        let mask = Mask {
+            data: vec![0u8; 100],
+            width: 10,
+            height: 10,
+            label: "empty".to_string(),
+        };
+        let bbox = mask_to_bbox(&mask);
+        assert_eq!(bbox, [0.0, 0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn bbox_single_pixel() {
+        let mask = mask_with_rect(10, 10, 5, 5, 5, 5);
+        let bbox = mask_to_bbox(&mask);
+        // single pixel: max == min, so w=0, h=0
+        assert_eq!(bbox[2], 0.0);
+        assert_eq!(bbox[3], 0.0);
+    }
+
+    #[test]
+    fn bbox_full_frame() {
+        let mask = mask_with_rect(8, 6, 0, 0, 7, 5);
+        let bbox = mask_to_bbox(&mask);
+        assert_eq!(bbox[0], 0.0);
+        assert_eq!(bbox[1], 0.0);
+        assert_eq!(bbox[2], 7.0); // 7-0
+        assert_eq!(bbox[3], 5.0); // 5-0
+    }
+
+    #[test]
+    fn rle_simple_mask() {
+        // 3x2 mask: row0=[0,255,0], row1=[0,255,0]
+        let mask = Mask {
+            data: vec![0, 255, 0, 0, 255, 0],
+            width: 3,
+            height: 2,
+            label: "test".to_string(),
+        };
+        let seg = mask_to_rle(&mask);
+        // RLE is column-major, starts counting from background (false)
+        // col0: [0,0] → 2 bg
+        // col1: [255,255] → transition → 2 fg
+        // col2: [0,0] → transition → 2 bg
+        // Result: [2, 2, 2] = 2 bg, 2 fg, 2 bg
+        match seg {
+            CocoSegmentation::Rle { counts, size } => {
+                assert_eq!(size, [2, 3]); // [height, width]
+                assert_eq!(counts, vec![2, 2, 2]);
+            }
+        }
+    }
+
+    #[test]
+    fn export_coco_skips_degenerate_masks() {
+        use crate::imaging::types::{ColorSpace, FrameMetadata, FrameSource};
+        use crate::pipeline::contracts::{
+            AnnotatedFrame, ExportConfig, ExportFormat, ExportItem, ImageExportFormat,
+            ProcessedFrame,
+        };
+
+        let dir = tempfile::tempdir().unwrap();
+        let frame = crate::imaging::types::Frame {
+            data: vec![128u8; 100],
+            width: 10,
+            height: 10,
+            colorspace: ColorSpace::Grayscale,
+            source: FrameSource::Image {
+                path: String::new(),
+            },
+        };
+
+        let single_pixel_mask = mask_with_rect(10, 10, 5, 5, 5, 5);
+        let real_mask = mask_with_rect(10, 10, 1, 1, 4, 4);
+
+        let config = ExportConfig {
+            format: ExportFormat::Coco,
+            output_dir: dir.path().to_str().unwrap().to_string(),
+            image_format: ImageExportFormat::Png,
+            include_metadata: false,
+        };
+
+        let items = vec![ExportItem {
+            processed: ProcessedFrame {
+                frame: frame.clone(),
+                filters_applied: vec![],
+            },
+            annotation: Some(AnnotatedFrame {
+                frame: frame.clone(),
+                masks: vec![single_pixel_mask, real_mask],
+            }),
+            metadata: FrameMetadata::default(),
+        }];
+
+        export_coco(&config, &items).unwrap();
+
+        let json_path = dir.path().join("annotations.json");
+        let json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&json_path).unwrap()).unwrap();
+
+        let annotations = json["annotations"].as_array().unwrap();
+        // Only the real mask should survive, single-pixel skipped
+        assert_eq!(annotations.len(), 1);
+        assert!(annotations[0]["area"].as_f64().unwrap() > 0.0);
+    }
+}

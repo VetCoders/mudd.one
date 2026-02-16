@@ -93,3 +93,77 @@ pub fn resize(frame: &Frame, target_width: u32, target_height: u32) -> Result<Fr
         source: frame.source.clone(),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::imaging::types::FrameSource;
+
+    #[test]
+    fn grayscale_noop() {
+        let frame = Frame {
+            data: vec![100u8; 16],
+            width: 4,
+            height: 4,
+            colorspace: ColorSpace::Grayscale,
+            source: FrameSource::Image {
+                path: String::new(),
+            },
+        };
+        let result = to_grayscale(&frame).unwrap();
+        assert_eq!(result.colorspace, ColorSpace::Grayscale);
+        assert_eq!(result.data, frame.data);
+    }
+
+    #[test]
+    fn rgb_to_grayscale_bt601() {
+        // Single pixel: pure red (255,0,0) → luma = 0.299*255 ≈ 76
+        let frame = Frame {
+            data: vec![255, 0, 0],
+            width: 1,
+            height: 1,
+            colorspace: ColorSpace::Rgb,
+            source: FrameSource::Image {
+                path: String::new(),
+            },
+        };
+        let result = to_grayscale(&frame).unwrap();
+        assert_eq!(result.colorspace, ColorSpace::Grayscale);
+        assert_eq!(result.data.len(), 1);
+        assert_eq!(result.data[0], 76); // 0.299 * 255 = 76.245
+    }
+
+    #[test]
+    fn resize_dimensions() {
+        let frame = Frame {
+            data: vec![128u8; 64],
+            width: 8,
+            height: 8,
+            colorspace: ColorSpace::Grayscale,
+            source: FrameSource::Image {
+                path: String::new(),
+            },
+        };
+        let result = resize(&frame, 4, 4).unwrap();
+        assert_eq!(result.width, 4);
+        assert_eq!(result.height, 4);
+        assert_eq!(result.colorspace, ColorSpace::Grayscale);
+        assert_eq!(result.data.len(), 16);
+    }
+
+    #[test]
+    fn resize_preserves_colorspace_rgb() {
+        let frame = Frame {
+            data: vec![128u8; 8 * 8 * 3],
+            width: 8,
+            height: 8,
+            colorspace: ColorSpace::Rgb,
+            source: FrameSource::Image {
+                path: String::new(),
+            },
+        };
+        let result = resize(&frame, 4, 4).unwrap();
+        assert_eq!(result.colorspace, ColorSpace::Rgb);
+        assert_eq!(result.data.len(), 4 * 4 * 3);
+    }
+}

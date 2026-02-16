@@ -150,3 +150,115 @@ fn save_frame(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::imaging::types::Mask;
+
+    fn mask_with_rect(w: u32, h: u32, x0: u32, y0: u32, x1: u32, y1: u32) -> Mask {
+        let mut data = vec![0u8; (w * h) as usize];
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                data[(y * w + x) as usize] = 255;
+            }
+        }
+        Mask {
+            data,
+            width: w,
+            height: h,
+            label: "test".to_string(),
+        }
+    }
+
+    #[test]
+    fn normalized_bbox_known_rect() {
+        // 10x10 mask, rect at (2,2)-(6,8) on 100x100 frame
+        let mask = mask_with_rect(10, 10, 2, 2, 6, 8);
+        let bbox = mask_to_normalized_bbox(&mask, 100, 100).unwrap();
+        // w=6-2=4, h=8-2=6, cx=2+2=4, cy=2+3=5
+        assert!((bbox.0 - 0.04).abs() < 1e-9); // cx/100
+        assert!((bbox.1 - 0.05).abs() < 1e-9); // cy/100
+        assert!((bbox.2 - 0.04).abs() < 1e-9); // w/100
+        assert!((bbox.3 - 0.06).abs() < 1e-9); // h/100
+    }
+
+    #[test]
+    fn normalized_bbox_empty_mask() {
+        let mask = Mask {
+            data: vec![0u8; 100],
+            width: 10,
+            height: 10,
+            label: "empty".to_string(),
+        };
+        assert!(mask_to_normalized_bbox(&mask, 100, 100).is_none());
+    }
+
+    #[test]
+    fn normalized_bbox_single_pixel_rejected() {
+        let mask = mask_with_rect(10, 10, 5, 5, 5, 5);
+        // single pixel: w=0, h=0 -> None
+        assert!(mask_to_normalized_bbox(&mask, 100, 100).is_none());
+    }
+
+    #[test]
+    fn normalized_bbox_zero_frame_dims() {
+        let mask = mask_with_rect(10, 10, 1, 1, 5, 5);
+        assert!(mask_to_normalized_bbox(&mask, 0, 100).is_none());
+        assert!(mask_to_normalized_bbox(&mask, 100, 0).is_none());
+    }
+
+    #[test]
+    fn export_yolo_end_to_end() {
+        use crate::imaging::types::{ColorSpace, FrameMetadata, FrameSource};
+        use crate::pipeline::contracts::{
+            AnnotatedFrame, ExportConfig, ExportFormat, ExportItem, ImageExportFormat,
+            ProcessedFrame,
+        };
+
+        let dir = tempfile::tempdir().unwrap();
+        let frame = crate::imaging::types::Frame {
+            data: vec![128u8; 100],
+            width: 10,
+            height: 10,
+            colorspace: ColorSpace::Grayscale,
+            source: FrameSource::Image {
+                path: String::new(),
+            },
+        };
+
+        let real_mask = mask_with_rect(10, 10, 1, 1, 4, 4);
+        let degenerate_mask = mask_with_rect(10, 10, 5, 5, 5, 5);
+
+        let config = ExportConfig {
+            format: ExportFormat::Yolo,
+            output_dir: dir.path().to_str().unwrap().to_string(),
+            image_format: ImageExportFormat::Png,
+            include_metadata: false,
+        };
+
+        let items = vec![ExportItem {
+            processed: ProcessedFrame {
+                frame: frame.clone(),
+                filters_applied: vec![],
+            },
+            annotation: Some(AnnotatedFrame {
+                frame: frame.clone(),
+                masks: vec![real_mask, degenerate_mask],
+            }),
+            metadata: FrameMetadata::default(),
+        }];
+
+        export_yolo(&config, &items).unwrap();
+
+        // Check label file has only 1 line (degenerate skipped)
+        let label = std::fs::read_to_string(dir.path().join("labels/frame_000000.txt")).unwrap();
+        let lines: Vec<&str> = label.lines().collect();
+        assert_eq!(lines.len(), 1, "degenerate mask should be skipped");
+        assert!(lines[0].starts_with("0 "), "should start with class_id 0");
+
+        // Check classes.txt
+        let classes = std::fs::read_to_string(dir.path().join("classes.txt")).unwrap();
+        assert_eq!(classes.trim(), "ultrasound_roi");
+    }
+}

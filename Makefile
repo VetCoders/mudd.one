@@ -119,8 +119,21 @@ xcode:
 
 app: bindings xcode
 	@echo "Building mudd.app..."
-	@set -o pipefail && xcodebuild -project app/mudd.xcodeproj -scheme mudd -configuration Debug build 2>&1 | tail -5
-	@echo "App built"
+	@rm -rf build/DerivedData build/mudd.app
+	@set -o pipefail && xcodebuild -project app/mudd.xcodeproj -scheme mudd -configuration Debug -derivedDataPath build/DerivedData build 2>&1 | tail -20
+	@BUILT_APP=$$(find build/DerivedData -name mudd.app -type d | head -1); \
+		if [ -z "$$BUILT_APP" ]; then \
+			echo "ERROR: mudd.app not found in build/DerivedData"; \
+			exit 1; \
+		fi; \
+		cp -R "$$BUILT_APP" build/mudd.app
+	@echo "App built: build/mudd.app"
+
+dmg:
+	@./scripts/build-dmg.sh
+
+dmg-signed:
+	@SIGNING_IDENTITY="Developer ID Application: Maciej Gad (MW223P3NPX)" ./scripts/build-dmg.sh
 
 # ============================================================================
 # Git Hooks
@@ -188,6 +201,8 @@ help:
 	@echo "  make bindings        Build FFI + generate Swift bindings"
 	@echo "  make xcode           Regenerate Xcode project (xcodegen)"
 	@echo "  make app             Full app build (bindings + xcode + build)"
+	@echo "  make dmg             Build release DMG (ad-hoc signed)"
+	@echo "  make dmg-signed      Build release DMG (Developer ID signed)"
 	@echo ""
 	@echo "Other:"
 	@echo "  make clean           cargo clean + remove caches"

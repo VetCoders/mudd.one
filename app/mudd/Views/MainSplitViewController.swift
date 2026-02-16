@@ -19,10 +19,9 @@ class MainSplitViewController: NSSplitViewController {
         let canvasItem = NSSplitViewItem(viewController: canvasVC)
         canvasItem.minimumThickness = 400
 
-        let inspectorItem = NSSplitViewItem(viewController: inspectorVC)
+        let inspectorItem = NSSplitViewItem(inspectorWithViewController: inspectorVC)
         inspectorItem.minimumThickness = 200
         inspectorItem.maximumThickness = 350
-        inspectorItem.canCollapse = true
 
         addSplitViewItem(sidebarItem)
         addSplitViewItem(canvasItem)

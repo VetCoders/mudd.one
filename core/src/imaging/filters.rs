@@ -86,3 +86,75 @@ fn gaussian_blur(frame: &Frame) -> Result<Frame> {
     let blurred: GrayImage = filter::gaussian_blur_f32(&gray, sigma);
     Ok(gray_to_frame(blurred, frame))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::imaging::types::FrameSource;
+
+    fn gray_frame(w: u32, h: u32, val: u8) -> Frame {
+        Frame {
+            data: vec![val; (w * h) as usize],
+            width: w,
+            height: h,
+            colorspace: ColorSpace::Grayscale,
+            source: FrameSource::Image {
+                path: String::new(),
+            },
+        }
+    }
+
+    fn rgb_frame(w: u32, h: u32) -> Frame {
+        Frame {
+            data: vec![128u8; (w * h * 3) as usize],
+            width: w,
+            height: h,
+            colorspace: ColorSpace::Rgb,
+            source: FrameSource::Image {
+                path: String::new(),
+            },
+        }
+    }
+
+    #[test]
+    fn apply_filter_returns_grayscale() {
+        let frame = gray_frame(32, 32, 100);
+        for filter_type in [
+            FilterType::HistogramEqualization,
+            FilterType::ContrastStretch,
+            FilterType::AdaptiveThreshold,
+            FilterType::Canny,
+            FilterType::GaussianBlur,
+        ] {
+            let result = apply_filter(&frame, filter_type).unwrap();
+            assert_eq!(result.colorspace, ColorSpace::Grayscale);
+            assert_eq!(result.width, 32);
+            assert_eq!(result.height, 32);
+            assert_eq!(result.data.len(), 32 * 32);
+        }
+    }
+
+    #[test]
+    fn apply_filter_on_rgb_converts_to_gray() {
+        let frame = rgb_frame(16, 16);
+        let result = apply_filter(&frame, FilterType::GaussianBlur).unwrap();
+        assert_eq!(result.colorspace, ColorSpace::Grayscale);
+        assert_eq!(result.data.len(), 16 * 16);
+    }
+
+    #[test]
+    fn apply_filters_chain() {
+        let frame = gray_frame(32, 32, 100);
+        let filters = vec![FilterType::GaussianBlur, FilterType::HistogramEqualization];
+        let result = apply_filters(&frame, &filters).unwrap();
+        assert_eq!(result.width, 32);
+        assert_eq!(result.height, 32);
+    }
+
+    #[test]
+    fn apply_filters_empty_is_noop() {
+        let frame = gray_frame(8, 8, 42);
+        let result = apply_filters(&frame, &[]).unwrap();
+        assert_eq!(result.data, frame.data);
+    }
+}
