@@ -1,0 +1,55 @@
+name: mudd
+options:
+  bundleIdPrefix: io.vetcoders
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "16.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    SWIFT_VERSION: "6.0"
+
+targets:
+  mudd:
+    type: application
+    platform: macOS
+    sources:
+      - path: mudd
+        excludes:
+          - "Bridge/mudd_ffiFFI.h"
+          - "Bridge/mudd_ffiFFI.modulemap"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.vetcoders.mudd
+        INFOPLIST_GENERATION_MODE: GeneratedFile
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: 1
+        GENERATE_INFOPLIST_FILE: true
+        INFOPLIST_KEY_NSPrincipalClass: NSApplication
+        SWIFT_OBJC_BRIDGING_HEADER: "mudd/Bridge/mudd_ffiFFI.h"
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        OTHER_LDFLAGS:
+          - "$(PROJECT_DIR)/../target/release/libmudd_ffi.a"
+          - "-lc++"
+          - "-L/opt/homebrew/lib"
+          - "-lavformat"
+          - "-lavcodec"
+          - "-lavutil"
+          - "-lswscale"
+          - "-lavdevice"
+          - "-framework"
+          - "CoreML"
+          - "-framework"
+          - "Security"
+          - "-framework"
+          - "SystemConfiguration"
+        HEADER_SEARCH_PATHS:
+          - "$(PROJECT_DIR)/mudd/Bridge"
+      configs:
+        Release:
+          SWIFT_OPTIMIZATION_LEVEL: "-O"
+          GCC_OPTIMIZATION_LEVEL: "s"
+          SWIFT_COMPILATION_MODE: wholemodule
