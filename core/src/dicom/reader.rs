@@ -27,7 +27,8 @@ pub fn load_file(path: &str) -> Result<FrameSequence> {
         load_image(path)
     } else {
         // Try DICOM first (many DICOM files have no extension)
-        load_dicom(path).or_else(|_| bail!("unsupported file format: .{ext}"))
+        load_dicom(path)
+            .or_else(|e| bail!("unsupported file format: .{ext} (DICOM attempt failed: {e:#})"))
     }
 }
 

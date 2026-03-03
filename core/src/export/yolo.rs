@@ -96,13 +96,9 @@ fn mask_to_normalized_bbox(
         return None;
     }
 
-    let w = (max_x - min_x) as f64;
-    let h = (max_y - min_y) as f64;
+    let w = (max_x - min_x + 1) as f64;
+    let h = (max_y - min_y + 1) as f64;
 
-    // Skip degenerate masks (single-pixel or zero-area) — consistent with COCO
-    if w <= 0.0 || h <= 0.0 {
-        return None;
-    }
     let cx = min_x as f64 + w / 2.0;
     let cy = min_y as f64 + h / 2.0;
 
@@ -123,6 +119,13 @@ fn save_frame(
     format: ImageExportFormat,
 ) -> Result<()> {
     use crate::imaging::types::ColorSpace;
+    use image::ColorType;
+
+    let color_type = match colorspace {
+        ColorSpace::Grayscale => ColorType::L8,
+        ColorSpace::Rgb => ColorType::Rgb8,
+        ColorSpace::Rgba => ColorType::Rgba8,
+    };
 
     let img_format = match format {
         ImageExportFormat::Png => image::ImageFormat::Png,
@@ -130,23 +133,8 @@ fn save_frame(
         ImageExportFormat::Tiff => image::ImageFormat::Tiff,
     };
 
-    match colorspace {
-        ColorSpace::Grayscale => {
-            let img: image::GrayImage = image::ImageBuffer::from_raw(width, height, data.to_vec())
-                .context("failed to create grayscale buffer")?;
-            img.save_with_format(path, img_format)?;
-        }
-        ColorSpace::Rgb => {
-            let img: image::RgbImage = image::ImageBuffer::from_raw(width, height, data.to_vec())
-                .context("failed to create RGB buffer")?;
-            img.save_with_format(path, img_format)?;
-        }
-        ColorSpace::Rgba => {
-            let img: image::RgbaImage = image::ImageBuffer::from_raw(width, height, data.to_vec())
-                .context("failed to create RGBA buffer")?;
-            img.save_with_format(path, img_format)?;
-        }
-    }
+    image::save_buffer_with_format(path, data, width, height, color_type, img_format)
+        .with_context(|| format!("failed to save frame to {}", path.display()))?;
 
     Ok(())
 }
@@ -176,11 +164,11 @@ mod tests {
         // 10x10 mask, rect at (2,2)-(6,8) on 100x100 frame
         let mask = mask_with_rect(10, 10, 2, 2, 6, 8);
         let bbox = mask_to_normalized_bbox(&mask, 100, 100).unwrap();
-        // w=6-2=4, h=8-2=6, cx=2+2=4, cy=2+3=5
-        assert!((bbox.0 - 0.04).abs() < 1e-9); // cx/100
-        assert!((bbox.1 - 0.05).abs() < 1e-9); // cy/100
-        assert!((bbox.2 - 0.04).abs() < 1e-9); // w/100
-        assert!((bbox.3 - 0.06).abs() < 1e-9); // h/100
+        // w=6-2+1=5, h=8-2+1=7, cx=2+2.5=4.5, cy=2+3.5=5.5
+        assert!((bbox.0 - 0.045).abs() < 1e-9); // cx/100
+        assert!((bbox.1 - 0.055).abs() < 1e-9); // cy/100
+        assert!((bbox.2 - 0.05).abs() < 1e-9); // w/100
+        assert!((bbox.3 - 0.07).abs() < 1e-9); // h/100
     }
 
     #[test]
@@ -195,10 +183,12 @@ mod tests {
     }
 
     #[test]
-    fn normalized_bbox_single_pixel_rejected() {
+    fn normalized_bbox_single_pixel_valid() {
         let mask = mask_with_rect(10, 10, 5, 5, 5, 5);
-        // single pixel: w=0, h=0 -> None
-        assert!(mask_to_normalized_bbox(&mask, 100, 100).is_none());
+        // single pixel: w=1, h=1 — valid 1x1 bbox
+        let bbox = mask_to_normalized_bbox(&mask, 100, 100).unwrap();
+        assert!((bbox.2 - 0.01).abs() < 1e-9); // 1/100
+        assert!((bbox.3 - 0.01).abs() < 1e-9); // 1/100
     }
 
     #[test]
@@ -251,11 +241,12 @@ mod tests {
 
         export_yolo(&config, &items).unwrap();
 
-        // Check label file has only 1 line (degenerate skipped)
+        // Both masks valid: single-pixel is 1x1, real mask is 4x4
         let label = std::fs::read_to_string(dir.path().join("labels/frame_000000.txt")).unwrap();
         let lines: Vec<&str> = label.lines().collect();
-        assert_eq!(lines.len(), 1, "degenerate mask should be skipped");
+        assert_eq!(lines.len(), 2, "both masks should produce labels");
         assert!(lines[0].starts_with("0 "), "should start with class_id 0");
+        assert!(lines[1].starts_with("0 "), "should start with class_id 0");
 
         // Check classes.txt
         let classes = std::fs::read_to_string(dir.path().join("classes.txt")).unwrap();

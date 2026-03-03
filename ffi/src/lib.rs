@@ -71,14 +71,18 @@ pub enum FfiFilterType {
 // Conversion helpers (owned — no unnecessary clones)
 // ═══════════════════════════════════════════════════════════
 
-fn ffi_to_frame(f: FfiFrame) -> Frame {
+fn ffi_to_frame(f: FfiFrame) -> Result<Frame, MuddError> {
     let colorspace = match f.channels {
         1 => ColorSpace::Grayscale,
         3 => ColorSpace::Rgb,
         4 => ColorSpace::Rgba,
-        _ => ColorSpace::Rgb,
+        _ => {
+            return Err(MuddError::Core {
+                msg: format!("unsupported channel count: {}", f.channels),
+            });
+        }
     };
-    Frame {
+    Ok(Frame {
         data: f.data,
         width: f.width,
         height: f.height,
@@ -86,7 +90,7 @@ fn ffi_to_frame(f: FfiFrame) -> Frame {
         source: FrameSource::Image {
             path: String::new(),
         },
-    }
+    })
 }
 
 fn frame_to_ffi(f: Frame) -> FfiFrame {
@@ -123,24 +127,24 @@ fn ffi_to_mask(m: FfiMask) -> Mask {
 
 #[uniffi::export]
 pub fn init_engine(model_path: String) -> Result<(), MuddError> {
-    mudd_core::inference::engine::init(&model_path)?;
+    mudd_core::inference::segmentation::init(&model_path)?;
     Ok(())
 }
 
 #[uniffi::export]
 pub fn init_engine_from_hf(repo: String, filename: String) -> Result<(), MuddError> {
-    mudd_core::inference::engine::init_from_hf(&repo, &filename)?;
+    mudd_core::inference::segmentation::init_from_hf(&repo, &filename)?;
     Ok(())
 }
 
 #[uniffi::export]
 pub fn is_engine_ready() -> bool {
-    mudd_core::inference::engine::is_initialized()
+    mudd_core::inference::segmentation::is_initialized()
 }
 
 #[uniffi::export]
 pub fn engine_model_name() -> Option<String> {
-    mudd_core::inference::engine::model_name()
+    mudd_core::inference::segmentation::model_name()
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -159,7 +163,7 @@ pub fn load_file(path: String) -> Result<Vec<FfiFrame>, MuddError> {
 
 #[uniffi::export]
 pub fn detect_roi(frame: FfiFrame) -> Result<FfiRoi, MuddError> {
-    let f = ffi_to_frame(frame);
+    let f = ffi_to_frame(frame)?;
     let roi = mudd_core::imaging::roi::detect_roi(&f)?;
     Ok(FfiRoi {
         x: roi.x,
@@ -171,7 +175,7 @@ pub fn detect_roi(frame: FfiFrame) -> Result<FfiRoi, MuddError> {
 
 #[uniffi::export]
 pub fn crop_frame(frame: FfiFrame, roi: FfiRoi) -> Result<FfiFrame, MuddError> {
-    let f = ffi_to_frame(frame);
+    let f = ffi_to_frame(frame)?;
     let r = Roi {
         x: roi.x,
         y: roi.y,
@@ -188,7 +192,7 @@ pub fn crop_frame(frame: FfiFrame, roi: FfiRoi) -> Result<FfiFrame, MuddError> {
 
 #[uniffi::export]
 pub fn apply_filter(frame: FfiFrame, filter_type: FfiFilterType) -> Result<FfiFrame, MuddError> {
-    let f = ffi_to_frame(frame);
+    let f = ffi_to_frame(frame)?;
     let ft = ffi_to_filter(&filter_type);
     let result = mudd_core::imaging::filters::apply_filter(&f, ft)?;
     Ok(frame_to_ffi(result))
@@ -199,7 +203,7 @@ pub fn apply_filters(
     frame: FfiFrame,
     filter_types: Vec<FfiFilterType>,
 ) -> Result<FfiFrame, MuddError> {
-    let f = ffi_to_frame(frame);
+    let f = ffi_to_frame(frame)?;
     let fts: Vec<FilterType> = filter_types.iter().map(ffi_to_filter).collect();
     let result = mudd_core::imaging::filters::apply_filters(&f, &fts)?;
     Ok(frame_to_ffi(result))
@@ -214,16 +218,18 @@ pub fn segment_frame(
     frame: FfiFrame,
     prompts: Vec<FfiPromptPoint>,
 ) -> Result<Vec<FfiMask>, MuddError> {
-    let f = ffi_to_frame(frame);
-    let pts: Vec<mudd_core::inference::segmentation::PromptPoint> = prompts
+    use mudd_core::inference::segmentation::{PromptPoint, PromptSet};
+
+    let f = ffi_to_frame(frame)?;
+    let pts: Vec<PromptPoint> = prompts
         .iter()
-        .map(|p| mudd_core::inference::segmentation::PromptPoint {
+        .map(|p| PromptPoint {
             x: p.x,
             y: p.y,
             label: p.label,
         })
         .collect();
-    let masks = mudd_core::inference::segmentation::segment_frame(&f, &pts)?;
+    let masks = mudd_core::inference::segmentation::segment_frame(&f, &[PromptSet::Points(pts)])?;
     Ok(masks
         .into_iter()
         .map(|m| FfiMask {
@@ -291,7 +297,7 @@ pub fn export_dataset(
     let core_items: Vec<ExportItem> = items
         .into_iter()
         .map(|item| {
-            let frame = ffi_to_frame(item.frame);
+            let frame = ffi_to_frame(item.frame)?;
             let annotation = if item.masks.is_empty() {
                 None
             } else {
@@ -300,7 +306,7 @@ pub fn export_dataset(
                     masks: item.masks.into_iter().map(ffi_to_mask).collect(),
                 })
             };
-            ExportItem {
+            Ok(ExportItem {
                 processed: ProcessedFrame {
                     frame,
                     filters_applied: Vec::new(),
@@ -311,9 +317,9 @@ pub fn export_dataset(
                     total_frames: total as usize,
                     ..Default::default()
                 },
-            }
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>, MuddError>>()?;
 
     match core_config.format {
         ExportFormat::Coco => mudd_core::export::coco::export_coco(&core_config, &core_items)?,

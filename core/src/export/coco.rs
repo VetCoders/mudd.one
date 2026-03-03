@@ -102,27 +102,15 @@ fn save_frame_to_file(
         ImageExportFormat::Tiff => image::ImageFormat::Tiff,
     };
 
-    let img = image::ImageBuffer::from_raw(frame.width, frame.height, frame.data.clone())
-        .context("failed to create image buffer for export")?;
-
-    match color_type {
-        ColorType::L8 => {
-            let gray: image::GrayImage = img;
-            gray.save_with_format(path, img_format)?;
-        }
-        ColorType::Rgb8 => {
-            let rgb: image::RgbImage =
-                image::ImageBuffer::from_raw(frame.width, frame.height, frame.data.clone())
-                    .context("failed to create RGB buffer")?;
-            rgb.save_with_format(path, img_format)?;
-        }
-        _ => {
-            let rgba: image::RgbaImage =
-                image::ImageBuffer::from_raw(frame.width, frame.height, frame.data.clone())
-                    .context("failed to create RGBA buffer")?;
-            rgba.save_with_format(path, img_format)?;
-        }
-    }
+    image::save_buffer_with_format(
+        path,
+        &frame.data,
+        frame.width,
+        frame.height,
+        color_type,
+        img_format,
+    )
+    .with_context(|| format!("failed to save frame to {}", path.display()))?;
 
     Ok(())
 }
@@ -150,7 +138,7 @@ fn mask_to_bbox(mask: &crate::imaging::types::Mask) -> [f64; 4] {
         return [0.0, 0.0, 0.0, 0.0];
     }
 
-    [min_x, min_y, max_x - min_x, max_y - min_y]
+    [min_x, min_y, max_x - min_x + 1.0, max_y - min_y + 1.0]
 }
 
 /// Simple RLE encoding of binary mask (COCO compressed RLE)
@@ -244,8 +232,8 @@ mod tests {
         let bbox = mask_to_bbox(&mask);
         assert_eq!(bbox[0], 2.0); // x
         assert_eq!(bbox[1], 3.0); // y
-        assert_eq!(bbox[2], 3.0); // width (5-2)
-        assert_eq!(bbox[3], 4.0); // height (7-3)
+        assert_eq!(bbox[2], 4.0); // width (5-2+1)
+        assert_eq!(bbox[3], 5.0); // height (7-3+1)
     }
 
     #[test]
@@ -264,9 +252,9 @@ mod tests {
     fn bbox_single_pixel() {
         let mask = mask_with_rect(10, 10, 5, 5, 5, 5);
         let bbox = mask_to_bbox(&mask);
-        // single pixel: max == min, so w=0, h=0
-        assert_eq!(bbox[2], 0.0);
-        assert_eq!(bbox[3], 0.0);
+        // single pixel: 1x1 bbox (inclusive)
+        assert_eq!(bbox[2], 1.0);
+        assert_eq!(bbox[3], 1.0);
     }
 
     #[test]
@@ -275,8 +263,8 @@ mod tests {
         let bbox = mask_to_bbox(&mask);
         assert_eq!(bbox[0], 0.0);
         assert_eq!(bbox[1], 0.0);
-        assert_eq!(bbox[2], 7.0); // 7-0
-        assert_eq!(bbox[3], 5.0); // 5-0
+        assert_eq!(bbox[2], 8.0); // 7-0+1
+        assert_eq!(bbox[3], 6.0); // 5-0+1
     }
 
     #[test]
@@ -350,8 +338,9 @@ mod tests {
             serde_json::from_str(&std::fs::read_to_string(&json_path).unwrap()).unwrap();
 
         let annotations = json["annotations"].as_array().unwrap();
-        // Only the real mask should survive, single-pixel skipped
-        assert_eq!(annotations.len(), 1);
+        // Both masks valid: single-pixel is 1x1, real mask is 4x4
+        assert_eq!(annotations.len(), 2);
         assert!(annotations[0]["area"].as_f64().unwrap() > 0.0);
+        assert!(annotations[1]["area"].as_f64().unwrap() > 0.0);
     }
 }
